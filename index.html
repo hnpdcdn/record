@@ -1,0 +1,1275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="system-logo.ico" sizes="any" />
+  <title>成绩查询系统</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; transition: background 0.3s, color 0.3s; }
+    body.dark { background: #1a1a2e; color: #eee; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    .login-box { max-width: 400px; margin: 100px auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
+    body.dark .login-box { background: #16213e; }
+    .login-box h1 { text-align: center; margin-bottom: 30px; font-size: 24px; }
+    .form-group { margin-bottom: 20px; }
+    .form-group label { display: block; margin-bottom: 8px; font-weight: 500; }
+    .form-group input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; background: white; color: #333; }
+    body.dark .form-group input { background: #0f3460; border-color: #0f3460; color: #eee; }
+    .btn { width: 100%; padding: 12px; background: #1890ff; color: white; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; }
+    .btn:hover { background: #40a9ff; }
+    .header { background: white; padding: 16px 20px; border-radius: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 10px; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    body.dark .header { background: #16213e; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+    .card { background: white; padding: 20px; border-radius: 12px; margin-bottom: 16px; border: 1px solid #91d5ff; }
+    body.dark .card { background: #16213e; border-color: #0f3460; }
+    .exam-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    .exam-card { background: white; padding: 20px; border-radius: 12px; cursor: pointer; transition: all 0.2s; border: 1px solid #91d5ff; }
+    body.dark .exam-card { background: #0f3460; border-color: #164580; }
+    .exam-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); transform: translateY(-2px); }
+    .exam-code { font-family: monospace; color: #666; font-size: 14px; }
+    body.dark .exam-code { color: #aaa; }
+    .exam-name { font-size: 18px; font-weight: 600; margin: 8px 0; }
+    .exam-score { font-size: 32px; font-weight: 700; color: #1890ff; }
+    .chart-container { height: 600px; border: 1px solid #91d5ff; border-radius: 8px; padding: 8px; background: transparent; }
+    body.dark .chart-container { border-color: #0f3460; }
+    .radar-container { height: 350px; border: 1px solid #91d5ff; border-radius: 8px; padding: 8px; margin-top:16px; display:none; }
+    body.dark .radar-container { border-color: #0f3460; }
+    .weak-kp-link { color:#1890ff; cursor:pointer; text-decoration:underline; }
+    .weak-kp-link:hover { color:#40a9ff; }
+    .kp-selector { margin-bottom: 16px; }
+    .error { color: #ff4d4f; text-align: center; margin-top: 10px; }
+    .hidden { display: none !important; }
+    .detail-panel { margin-top: 16px; border-top: 1px solid #eee; padding-top: 16px; max-height: 300px; overflow-y: auto; }
+    body.dark .detail-panel { border-color: #333; }
+    .detail-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #f5f5f5; }
+    body.dark .detail-item { border-color: #333; }
+    .weak-tip { background: #fff7e6; border-left: 4px solid #fa8c16; padding: 12px; border-radius: 4px; margin-bottom: 16px; font-size: 14px; line-height: 1.6; }
+    body.dark .weak-tip { background: #3d2c00; }
+    .improve-tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 8px; }
+    .up { background: #f6ffed; color: #52c41a; }
+    body.dark .up { background: #163020; }
+    .down { background: #fff2f0; color: #ff4d4f; }
+    body.dark .down { background: #3d1111; }
+    .flat { background: #f5f5f5; color: #666; }
+    .pos-bar { height: 8px; background: #f0f0f0; border-radius: 4px; margin-top: 8px; position: relative; }
+    body.dark .pos-bar { background: #333; }
+    .pos-dot { position: absolute; top: -3px; width: 14px; height: 14px; border-radius: 50%; background: #1890ff; }
+    .fav-star { cursor: pointer; margin-left: 8px; font-size: 16px; }
+    .score-full { background: #b7eb8f; padding: 4px 8px; border-radius: 4px; font-weight: 500; }
+    body.dark .score-full { background: #237804; color: white; }
+    .score-partial { background: #ffe58f; padding: 4px 8px; border-radius: 4px; }
+    body.dark .score-partial { background: #d48806; color: white; }
+    .score-zero { background: #ffccc7; padding: 4px 8px; border-radius: 4px; }
+    body.dark .score-zero { background: #cf1322; color: white; }
+    #kp-dialog > div { background: white; }
+    body.dark #kp-dialog > div { background: #16213e; color: #eee; }
+    body.dark #kp-dialog h3, body.dark #kp-search { color: #eee; }
+    body.dark #kp-search { background: #0f3460; border-color: #0f3460; color: #eee; }
+    body.dark #kp-search::placeholder { color: #888; }
+    body.dark #kp-tree { color: #eee; }
+    body.dark #kp-tree span { color: #eee !important; }
+    body.dark .detail-item { color: #eee; }
+    body.dark .exam-code, body.dark #kp-tip, body.dark .pos-bar + div { color: #aaa !important; }
+    /* 移动端适配 */
+    @media (max-width: 768px) {
+      .container { padding: 12px; }
+      .login-box { margin: 40px auto; padding: 24px; }
+      .header { flex-direction: column; gap: 12px; align-items: flex-start; }
+      .exam-list { grid-template-columns: 1fr; }
+      .chart-container { height: 420px; }
+      .exam-score { font-size: 36px; }
+      .btn { padding: 12px; }
+    }
+    @keyframes qxb-spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- 登录页 -->
+    <div id="login-page">
+      <div class="login-box">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <img id="login-logo" style="width:60px;height:60px;display:block;margin:0 auto 12px;">
+          <h1 style="font-size: 22px; margin: 0;">柒小白自动阅卷系统</h1>
+          <p style="color: #666; font-size: 14px; margin-top: 8px;">学生成绩查询平台</p>
+        </div>
+        <div class="form-group">
+          <label>学校（选填）</label>
+          <input type="text" id="school" placeholder="多校部署时填写，留空跳过">
+        </div>
+        <div class="form-group">
+          <label>所在班级</label>
+          <input type="text" id="class-code" placeholder="例如：75班">
+        </div>
+        <div class="form-group">
+          <label>班级访问码</label>
+          <input type="password" id="class-password" placeholder="有密码则输入，无密码留空">
+        </div>
+        <div class="form-group">
+          <label>学生姓名</label>
+          <input type="text" id="student-name" placeholder="请输入姓名">
+        </div>
+        <div class="form-group">
+          <label>学号</label>
+          <input type="text" id="student-id" placeholder="请输入学号">
+        </div>
+        <button class="btn" onclick="login()">查询成绩</button>
+        <div style="font-size:12px; color:#999; margin-top:10px; text-align:center;">解密过程需终端性能，可能较慢</div>
+        <div id="login-error" class="error hidden"></div>
+      </div>
+    </div>
+
+    <!-- 解密等待遮罩：点击查询成绩立即显示；后台并行拉取+分片解密，动画保持流畅 -->
+    <div id="loading-mask" class="hidden" style="position:fixed; inset:0; z-index:9999; background:rgba(255,255,255,.94); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px;">
+      <div style="width:52px; height:52px; border:5px solid #d6e4ff; border-top-color:#1890ff; border-radius:50%; animation:qxb-spin 1s linear infinite;"></div>
+      <div style="font-size:17px; color:#333; font-weight:600;">等待客户端解密成绩，请稍候…</div>
+      <div id="loading-progress" style="font-size:13px; color:#888;">正在解密 0 / 0 场</div>
+    </div>
+
+    <!-- 主页 -->
+    <div id="main-page" class="hidden">
+      <div class="header">
+        <div>
+          <div style="display:flex; align-items:center; gap:8px; font-size: 14px; color: #1890ff; font-weight: 600; margin-bottom: 4px;">
+            <img id="header-logo" style="width:24px;height:24px;">
+            柒小白自动阅卷系统
+          </div>
+          <h2 id="welcome-text">欢迎，同学</h2>
+        </div>
+        <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+          <button class="btn" style="width: auto; padding: 5px 12px; font-size: 13px; background: #333;" onclick="toggleDarkMode()" id="btn-dark">🌙 暗黑</button>
+          <button class="btn" style="width: auto; padding: 5px 12px; font-size: 13px;" onclick="openKpDialog()">选知识点</button>
+          <button class="btn" style="width: auto; padding: 5px 12px; font-size: 13px; background: #666;" onclick="clearKpSelection()">一键清空</button>
+          <button id="btn-rate" class="btn" style="width: auto; padding: 5px 12px; font-size: 13px; background: #1890ff;" onclick="switchDisplayMode('rate')">得分率</button>
+          <button id="btn-score" class="btn" style="width: auto; padding: 5px 12px; font-size: 13px; background: #ddd; color: #333;" onclick="switchDisplayMode('score')">原始分</button>
+          <button class="btn" style="width: auto; padding: 5px 12px; font-size: 13px; background: #fa541c;" onclick="openWrongBook()">📕 错题本</button>
+          <button class="btn" style="width: auto; padding: 6px 16px; font-size: 13px;" onclick="logout()">退出</button>
+        </div>
+      </div>
+
+      <!-- 成绩趋势图 -->
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h3 style="margin: 0;">成绩趋势</h3>
+        </div>
+        <div id="weak-tip" class="weak-tip hidden"></div>
+        <div id="kp-tip" style="margin-bottom:12px; font-size:14px; color:#666;">未选择知识点，默认总分趋势</div>
+        <div id="trend-chart" class="chart-container"></div>
+        <div id="rank-chart" class="chart-container" style="margin-top:20px; height:350px;"></div>
+        <div id="radar-chart" class="radar-container"></div>
+      </div>
+
+      <!-- 考试成绩列表 -->
+      <div class="card">
+        <h3 style="margin-bottom: 16px;">历次考试成绩</h3>
+        <div class="exam-list" id="exam-list"></div>
+      </div>
+    </div>
+
+    <!-- 知识点选择弹窗 -->
+    <div id="kp-dialog" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:999; padding:20px; box-sizing:border-box;">
+      <div style="background:white; max-width:800px; margin:0 auto; border-radius:12px; display:flex; flex-direction:column; max-height:85vh;">
+        <div style="padding:20px 24px 0 24px;">
+          <h3 style="margin:0 0 16px 0;">选择知识点（最多选10个，任意层级都能选）</h3>
+          <input type="text" placeholder="搜索知识点..." id="kp-search" oninput="renderKpTree(this.value)" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:6px; margin-bottom:12px; box-sizing:border-box;">
+          <div id="fav-area" style="margin-bottom:12px; padding:8px; background:#fffbe6; border-radius:6px; display:none;">
+            <div style="font-size:12px; color:#fa8c16; margin-bottom:4px;">⭐ 我的收藏（点一下快速选中）：</div>
+            <div id="fav-list"></div>
+          </div>
+        </div>
+        <div id="kp-tree" style="flex:1; overflow-y:auto; padding:0 24px; margin-bottom:20px;">
+          <div style="color:#999; text-align:center; padding:20px;">加载中...</div>
+        </div>
+        <div style="padding:16px 24px; border-top:1px solid #eee; display:flex; gap:8px; justify-content:flex-end;">
+          <button style="padding:8px 16px; border:none; border-radius:6px; background:#ddd; cursor:pointer;" onclick="closeKpDialog()">取消</button>
+          <button style="padding:8px 16px; border:none; border-radius:6px; background:#1890ff; color:white; cursor:pointer;" onclick="confirmKpSelect()">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 错题本弹窗 -->
+    <div id="wrong-dialog" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:999; padding:20px; box-sizing:border-box;">
+      <div style="background:white; max-width:800px; margin:0 auto; border-radius:12px; display:flex; flex-direction:column; max-height:85vh;">
+        <div style="padding:20px 24px 0 24px;">
+          <h3 style="margin:0 0 16px 0;">📕 我的错题本（自动汇总所有考试）</h3>
+        </div>
+        <div id="wrong-list" style="padding:0 24px; flex:1; overflow-y:auto;"></div>
+        <div style="padding:16px 24px; display:flex; justify-content:flex-end; gap:8px; border-top:1px solid #eee;">
+          <button style="padding:8px 16px; border:none; border-radius:6px; background:#ddd; cursor:pointer;" onclick="closeWrongBook()">关闭</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 流量优化：同一 logo 只内嵌 1 份（favicon 走 system-logo.ico 外链），两个 logo 元素共用
+    const LOGO_SRC = 'data:image/x-icon;base64,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';
+    (function () {
+      var a = document.getElementById('login-logo'); if (a) a.src = LOGO_SRC;
+      var b = document.getElementById('header-logo'); if (b) b.src = LOGO_SRC;
+    })();
+    // 按需加载运行库：仅在点击“查询成绩”时才下载，未操作时页面零外部请求
+    var _scriptCache = {};
+    // 加载运行库：优先本地文件（随导出包/部署目录发布，GitHub Pages/Gitee 均可达），
+    // 失败自动回退 CDN。本地化解决手机端在国内网络无法访问 cdn.jsdelivr.net 导致“登录失败”的问题
+    function loadScript(src, fallbackSrc) {
+      if (_scriptCache[src]) return _scriptCache[src];
+      _scriptCache[src] = new Promise(function (resolve, reject) {
+        var s = document.createElement('script');
+        s.src = src;
+        s.onload = resolve;
+        s.onerror = function () {
+          if (fallbackSrc) {
+            var s2 = document.createElement('script');
+            s2.src = fallbackSrc;
+            s2.onload = resolve;
+            s2.onerror = function () { reject(new Error('加载组件失败，请检查网络后重试')); };
+            document.head.appendChild(s2);
+          } else {
+            reject(new Error('加载组件失败，请检查网络后重试'));
+          }
+        };
+        document.head.appendChild(s);
+      });
+      return _scriptCache[src];
+    }
+    const CDN_ECHARTS = 'https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js';
+    const CDN_CRYPTO = 'https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.min.js';
+    // 本地运行库（与 CDN 同版本：crypto-js@4.2.0、echarts@5.4.3）
+    const LIB_CRYPTO = 'lib/crypto-js.min.js';
+    const LIB_ECHARTS = 'lib/echarts.min.js';
+    // 初始化暗黑模式
+    if (localStorage.getItem('darkMode') === 'true') {
+      document.body.classList.add('dark');
+      document.getElementById('btn-dark').textContent = '☀️ 明亮';
+    }
+    function toggleDarkMode() {
+      document.body.classList.toggle('dark');
+      const isDark = document.body.classList.contains('dark');
+      localStorage.setItem('darkMode', isDark);
+      document.getElementById('btn-dark').textContent = isDark ? '☀️ 明亮' : '🌙 暗黑';
+      // 图表重新渲染适配暗色
+      if (trendChart) renderChart();
+      if (rankChart) renderRankChart();
+    }
+    let classCode = '';
+    let studentName = '';
+    let studentId = '';
+    let indexList = null;
+    let knowledgeMap = null;
+    let studentData = null;
+    let selectedKpIds = [];
+    let trendChart = null;
+    let rankChart = null;
+    let radarChart = null;
+    let displayMode = 'rate'; // rate=得分率, score=原始分
+    let kpCountMap = {}; // 每个知识点的题目数量
+    let kpIdToPath = {}; // 知识点编号 -> 路径（knowledge-map.ids，编号压缩解析用）
+    let kpPathToId = {}; // 路径 -> 知识点编号
+    let kpSubtreeIds = {}; // 路径 -> 该路径子树全部节点id数组（含自身），雷达图聚合权重用
+    let favKps = JSON.parse(localStorage.getItem('favKps') || '[]'); // 收藏的知识点
+
+    // 把 exam 里的知识点键（可能是编号id或旧版路径）解析为路径字符串；解析不了则原样返回（兼容旧导出包）
+    function resolveKpKey(kp) {
+      if (!kp) return '';
+      if (typeof kp === 'string' && kp.charAt(0) === 'k' && kpIdToPath[kp]) return kpIdToPath[kp];
+      return kp;
+    }
+
+    // AES解密学生数据
+    function decryptStudentData(encBase64, name, studentNo, classKey) {
+      const salt = 'qxb-parent-static::v1';
+      // v3：有班级密钥（有密码班级）→ key = HMAC(classKey, 姓名+学号)（班级密码保护层）；
+      // v2 旧包/无密码班级 → 沿用 HMAC(姓名+学号, 固定盐)
+      const key = classKey
+        ? CryptoJS.HmacSHA256(`${name}||${studentNo}`, classKey)
+        : CryptoJS.HmacSHA256(`${name}||${studentNo}`, salt);
+      const encryptedWordArray = CryptoJS.enc.Base64.parse(encBase64);
+      const ivWordArray = CryptoJS.lib.WordArray.create(encryptedWordArray.words.slice(0, 4));
+      const ciphertextWordArray = CryptoJS.lib.WordArray.create(encryptedWordArray.words.slice(4));
+      const decrypted = CryptoJS.AES.decrypt(
+        { ciphertext: ciphertextWordArray },
+        key,
+        { iv: ivWordArray, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }
+      );
+      const plainJson = decrypted.toString(CryptoJS.enc.Utf8);
+      return JSON.parse(plainJson);
+    }
+
+    // ===== 安全升级：班级密码 → PBKDF2 派生密钥 → 整个 exam 文件解密 =====
+    // 与导出端 Node crypto.pbkdf2Sync(password, salt, iter, 32, 'sha256') 算法一致
+    // 派生缓存：同一班级（同 salt+iter）只派生一次，登录校验与全部场次解密共用同一 key，
+    // 避免每场考试重复 PBKDF2 造成的登录卡顿（旧包每场 salt 不同无法命中，新包统一 salt 必命中）
+    let classKeyCache = { salt: '', iter: 0, key: null };
+    function deriveClassKey(password, saltB64, iterations) {
+      if (classKeyCache.key && classKeyCache.salt === saltB64 && classKeyCache.iter === iterations) {
+        return classKeyCache.key;
+      }
+      const key = CryptoJS.PBKDF2(password, CryptoJS.enc.Base64.parse(saltB64), {
+        keySize: 256 / 32,
+        iterations,
+        hasher: CryptoJS.algo.SHA256,
+      });
+      classKeyCache = { salt: saltB64, iter: iterations, key };
+      return key;
+    }
+    // 解密 v2 整体加密的 exam 文件（密文 {v, barcodes, kdf, enc}）
+    function decryptExamFile(encObj, password) {
+      const key = deriveClassKey(password, encObj.kdf.salt, encObj.kdf.iter);
+      const full = CryptoJS.enc.Base64.parse(encObj.enc);
+      const iv = CryptoJS.lib.WordArray.create(full.words.slice(0, 4), 16);
+      const body = CryptoJS.lib.WordArray.create(full.words.slice(4), full.sigBytes - 16);
+      const decrypted = CryptoJS.AES.decrypt({ ciphertext: body }, key, {
+        iv,
+        mode: CryptoJS.mode.CBC,
+        padding: CryptoJS.pad.Pkcs7,
+      });
+      return JSON.parse(decrypted.toString(CryptoJS.enc.Utf8));
+    }
+
+    // ===== 等待动画 / 并行拉取 / 分片解密（2026-10-18 登录链优化） =====
+    const nextFrame = () => new Promise(r => setTimeout(r, 0));
+    // 并行拉取全部考试文件（限并发，百场不串行等网络），失败项置 null 由解密循环跳过
+    async function fetchAllWithLimit(urls, limit, options) {
+      const results = new Array(urls.length);
+      let next = 0;
+      const worker = async () => {
+        while (next < urls.length) {
+          const i = next++;
+          try {
+            const res = await fetch(urls[i], options);
+            results[i] = res.ok ? await res.json() : null;
+          } catch (e) { results[i] = null; }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(limit, urls.length) }, worker));
+      return results;
+    }
+    function showLoading(total) {
+      const mask = document.getElementById('loading-mask');
+      if (mask) mask.classList.remove('hidden');
+      updateProgress(0, total);
+    }
+    function updateProgress(done, total) {
+      const el = document.getElementById('loading-progress');
+      if (el) el.textContent = total > 0 ? `正在解密 ${done} / ${total} 场` : '';
+    }
+    function hideLoading() {
+      const mask = document.getElementById('loading-mask');
+      if (mask) mask.classList.add('hidden');
+    }
+
+    // 输入归一化：全角数字/字母/空格转半角并去首尾空白，根除手机端输入法（全角、误带空格）导致的匹配失败
+    function normalizeInput(v) {
+      return String(v || '').replace(/[\uFF10-\uFF19\uFF21-\uFF3A\uFF41-\uFF5A]/g, function (c) {
+        return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+      }).replace(/\u3000/g, ' ').trim();
+    }
+    // 学校校验：登录栏填写了学校、且该生有学校信息且不一致时返回提示文案；留空/无学校信息返回空串（跳过）
+    function checkSchool(me, schoolInput) {
+      if (schoolInput && me && me.school && schoolInput !== me.school) {
+        return `该学号对应的学生属于学校「${me.school}」，与输入不符`;
+      }
+      return '';
+    }
+
+    async function login() {
+      const pwd = normalizeInput(document.getElementById('class-password').value);
+      classCode = normalizeInput(document.getElementById('class-code').value);
+      studentName = normalizeInput(document.getElementById('student-name').value);
+      studentId = normalizeInput(document.getElementById('student-id').value);
+      const schoolInput = normalizeInput(document.getElementById('school').value);
+      const errEl = document.getElementById('login-error');
+
+      if (!classCode || !studentName || !studentId) {
+        errEl.textContent = '请填写班级、姓名和学号';
+        errEl.classList.remove('hidden');
+        return;
+      }
+      try {
+        // 0) 按需加载运行库（仅查询时才下载）
+        await loadScript(LIB_CRYPTO, CDN_CRYPTO);
+        await loadScript(LIB_ECHARTS, CDN_ECHARTS);
+        // 1) 加载班级配置：新格式无明文密码，只存派生参数+校验哈希；无 passwordHash = 无密码班级
+        const configRes = await fetch(`class/${classCode}/config.json`, { cache: 'no-cache' });
+        if (!configRes.ok) throw new Error('班级不存在');
+        const classConfig = await configRes.json();
+        if (classConfig.passwordHash) {
+          if (!pwd) {
+            errEl.textContent = '该班级需要访问密码，请填写后重试';
+            errEl.classList.remove('hidden');
+            return;
+          }
+          const derivedHash = CryptoJS.enc.Base64.stringify(
+            deriveClassKey(pwd, classConfig.kdf.salt, classConfig.kdf.iter)
+          );
+          if (derivedHash !== classConfig.passwordHash) {
+            errEl.textContent = '班级访问码错误';
+            errEl.classList.remove('hidden');
+            return;
+          }
+        }
+
+        // 班级派生密钥：校验通过后缓存取用（同班只派生一次；无密码班级为 null → 学生块走固定盐）
+        let classKey = null;
+        if (classConfig.passwordHash) {
+          classKey = deriveClassKey(pwd, classConfig.kdf.salt, classConfig.kdf.iter);
+        }
+
+        // 加载索引
+        const indexRes = await fetch(`class/${classCode}/index-list.json`, { cache: 'no-cache' });
+        if (!indexRes.ok) throw new Error('班级不存在');
+        indexList = await indexRes.json();
+
+        // 点击查询成绩立即进入等待动画（后台并行拉取+分片解密，主线程不被长任务卡死）
+        showLoading(indexList.exams.length);
+
+        // v4 包（每场考试一个文件夹 + 每生一个文件）：家长只下载 config + index-list + stats + 本人各场学生文件，不再逐场下载全班密文
+        if (indexList.format === 'v4') {
+          const progressEl = document.getElementById('loading-progress');
+          if (progressEl) progressEl.textContent = '正在解密成绩数据…';
+          const statsRes = await fetch(`class/${classCode}/stats.json`, { cache: 'no-cache' });
+          if (!statsRes.ok) throw new Error('班级统计数据不存在');
+          const statsData = await statsRes.json();
+          // 并行拉取该生在每场考试文件夹下的学生文件（限并发 6；404 = 该生未参加该场，跳过）
+          const examList = indexList.exams || [];
+          const stuRawList = await fetchAllWithLimit(
+            examList.map(e => `class/${classCode}/${e.examCode}/students/${studentId}.json`),
+            6,
+            { cache: 'no-cache' }
+          );
+          const statsMap = new Map((statsData.exams || []).map(x => [x.examCode, x]));
+          studentData = { barcode: studentId, name: studentName, exams: [] };
+          let found = false;
+          let nameChecked = false;
+          for (let i = 0; i < examList.length; i++) {
+            const exam = examList[i];
+            const raw = stuRawList[i];
+            if (!raw) continue; // 该生未参加此场（404）
+            let me;
+            try {
+              me = decryptStudentData(raw.enc, studentName, studentId, classKey);
+            } catch (e) {
+              console.warn('场次解密失败:', exam.examCode, e);
+              continue;
+            }
+            if (!nameChecked) {
+              if (me.name !== studentName) {
+                hideLoading();
+                errEl.textContent = `学号 ${studentId} 对应的学生姓名是「${me.name}」，与输入不符`;
+                errEl.classList.remove('hidden');
+                return;
+              }
+              const schoolErr = checkSchool(me, schoolInput);
+              if (schoolErr) {
+                hideLoading();
+                errEl.textContent = schoolErr;
+                errEl.classList.remove('hidden');
+                return;
+              }
+              nameChecked = true;
+            }
+            found = true;
+            // 组装与 v3 一致的数据形状（渲染层零改动）：该生各场数据 + 班级统计
+            if (!me.exam) { console.warn('场次数据缺少 exam 字段，跳过:', exam.examCode); continue; }
+            const s = statsMap.get(exam.examCode) || {};
+            studentData.exams.push({
+              examCode: exam.examCode,
+              examName: s.examName || exam.examCode,
+              tag: s.tag || '',
+              score: me.exam.score,
+              maxScore: s.maxScore || 0,
+              rate: me.exam.rate,
+              rank: me.exam.rank,
+              studentCount: s.studentCount || 0,
+              avgScore: s.avgScore || 0,
+              avgRate: s.avgRate || 0,
+              qAvgRates: s.qAvgRates || [],
+              classKpRates: s.classKpRates || {},
+              details: me.exam.details || [],
+              kp: me.exam.kp || {},
+              questionKp: s.questionKp || [],
+            });
+            updateProgress(i + 1, examList.length);
+            await nextFrame();
+          }
+          hideLoading();
+          if (!found) {
+            errEl.textContent = '未找到该学号，请检查学号是否正确';
+            errEl.classList.remove('hidden');
+            return;
+          }
+        } else {
+        // 并行拉取全部考试文件（限并发 6）
+        const raws = await fetchAllWithLimit(
+          indexList.exams.map(e => `class/${classCode}/${e.path}`),
+          6,
+          { cache: 'no-cache' }
+        );
+
+        // 解密：v3 只解当前学生块（班级统计明文直接用）；v2 旧包整场解密（兼容已部署包）。
+        // 每场解密后让出主线程渲染动画/进度，场次再多也不卡 UI。
+        studentData = { exams: [] };
+        let found = false;
+        for (let i = 0; i < indexList.exams.length; i++) {
+          const exam = indexList.exams[i];
+          const raw = raws[i];
+          if (raw) {
+            try {
+              let examData = raw;
+              if (raw && raw.v === 2 && raw.enc) {
+                if (!pwd) {
+                  hideLoading();
+                  errEl.textContent = '该班级需要访问密码，请填写后重试';
+                  errEl.classList.remove('hidden');
+                  return;
+                }
+                examData = decryptExamFile(raw, pwd);
+              }
+              const encStudent = (examData.students || []).find(s => s.barcode === studentId);
+              if (encStudent) {
+                // 只解密当前学生块（v2 旧包学生块为固定盐密钥 → 传 null；v3 传班级密钥）
+                const me = decryptStudentData(encStudent.enc, studentName, studentId, raw && raw.v === 3 ? classKey : null);
+                found = true;
+                // 校验姓名
+                if (me.name !== studentName) {
+                  hideLoading();
+                  errEl.textContent = `学号 ${studentId} 对应的学生姓名是「${me.name}」，与输入不符`;
+                  errEl.classList.remove('hidden');
+                  return;
+                }
+                const schoolErr = checkSchool(me, schoolInput);
+                if (schoolErr) {
+                  hideLoading();
+                  errEl.textContent = schoolErr;
+                  errEl.classList.remove('hidden');
+                  return;
+                }
+                studentData.exams.push({
+                  ...exam,
+                  score: me.score,
+                  maxScore: me.maxScore,
+                  rate: me.rate,
+                  rank: me.rank,
+                  avgScore: examData.avgScore,
+                  avgRate: examData.avgRate,
+                  qAvgRates: examData.qAvgRates,
+                  classKpRates: examData.classKpRates || {},
+                  details: me.details,
+                  kp: me.kp || {},
+                  questionKp: examData.questionKp || [],
+                });
+              }
+            } catch (e) {
+              console.warn('加载考试失败:', exam.examCode, e);
+            }
+          }
+          updateProgress(i + 1, indexList.exams.length);
+          await nextFrame();
+        }
+        hideLoading();
+
+        if (!found) {
+          errEl.textContent = '未找到该学号，请检查学号是否正确';
+          errEl.classList.remove('hidden');
+          return;
+        }
+        } // 闭合 v3/v2 兼容分支（v4 分支已在上面完成）
+
+        // 按考试码升序排序
+        studentData.exams.sort((a, b) => String(a.examCode).localeCompare(String(b.examCode)));
+
+        // 预加载知识地图：确保答题详情/折线/雷达渲染时 id→路径映射已就绪（修复乱码与取数断链）
+        try { await loadKpMap(); } catch (e) { /* 无知识地图时知识点功能降级，不阻断登录 */ }
+
+        document.getElementById('login-page').classList.add('hidden');
+        document.getElementById('main-page').classList.remove('hidden');
+        document.getElementById('welcome-text').textContent = `欢迎，${studentName}同学`;
+
+        renderExamList();
+        initChart();
+      } catch (err) {
+        hideLoading();
+        errEl.textContent = '登录失败，请检查班级密码和信息';
+        errEl.classList.remove('hidden');
+      }
+    }
+
+    function logout() {
+      document.getElementById('main-page').classList.add('hidden');
+      document.getElementById('login-page').classList.remove('hidden');
+    }
+
+
+    function switchDisplayMode(mode) {
+      displayMode = mode;
+      // 更新按钮样式
+      document.getElementById('btn-rate').style.background = mode === 'rate' ? '#1890ff' : '#ddd';
+      document.getElementById('btn-rate').style.color = mode === 'rate' ? 'white' : '#333';
+      document.getElementById('btn-score').style.background = mode === 'score' ? '#1890ff' : '#ddd';
+      document.getElementById('btn-score').style.color = mode === 'score' ? 'white' : '#333';
+      // 重新渲染
+      renderExamList();
+      renderChart();
+    }
+
+    function renderExamList() {
+      const listEl = document.getElementById('exam-list');
+      listEl.innerHTML = '';
+      // 难度标签配色：难题红 / 较难橙 / 中档黄 / 较易青 / 简单蓝（底色+文字）
+      const diffMeta = { 'very-hard': ['难题', '#f5222d'], 'hard': ['较难', '#fa541c'], 'medium': ['中档', '#faad14'], 'easy': ['较易', '#13c2c2'], 'very-easy': ['简单', '#1677ff'] };
+      studentData.exams.forEach((exam, idx) => {
+        const card = document.createElement('div');
+        card.className = 'exam-card';
+        // 计算和上一场的进步退步（按正确率/得分率变化，不用原始分）
+        let changeTag = '';
+        if (idx > 0) {
+          const prev = studentData.exams[idx-1];
+          const rateDiff = Math.round((exam.rate - prev.rate)*10)/10;
+          const rankDiff = prev.rank - exam.rank; // 正数是排名上升
+          if (rateDiff > 0.5) changeTag += `<span class="improve-tag up">↑ 正确率提升${rateDiff}%</span>`;
+          else if (rateDiff < -0.5) changeTag += `<span class="improve-tag down">↓ 正确率下降${Math.abs(rateDiff)}%</span>`;
+          if (rankDiff > 0) changeTag += `<span class="improve-tag up">↑ 排名升${rankDiff}</span>`;
+          else if (rankDiff < 0) changeTag += `<span class="improve-tag down">↓ 排名降${Math.abs(rankDiff)}</span>`;
+        }
+        // 计算位置百分比（越靠前位置越靠左；单人班分母为0时归0）
+        const posPercent = exam.studentCount > 1 ? Math.round((exam.rank - 1) / (exam.studentCount - 1) * 100) : 0;
+        card.innerHTML = `
+          <div class="exam-code">${exam.examCode}${exam.tag ? ` [${exam.tag}]` : ''} ${changeTag}</div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin:8px 0;">
+            <div class="exam-name" style="margin:0;">${exam.examName}</div>
+            <div class="exam-score" style="font-size:24px;">${displayMode === 'rate' ? exam.rate + '%' : exam.score + '分'}</div>
+          </div>
+          <div style="color: #666; font-size: 14px; margin-top: 4px;">班级排名：第 ${exam.rank} 名 / 共 ${exam.studentCount} 人</div>
+          <div class="pos-bar"><div class="pos-dot" style="left: calc(${posPercent}% - 7px);"></div></div>
+          <div style="color: #666; font-size: 14px; margin-top: 4px;">班级平均：${displayMode === 'rate' ? exam.avgRate + '%' : exam.avgScore + '分'} | 本次满分：${exam.maxScore || '-'}分</div>
+          <div style="margin-top: 12px;">
+            ${exam.details && exam.details.length > 0
+              ? `<button class="btn" style="width: auto; padding: 6px 12px; font-size: 14px;" onclick="toggleDetail('${exam.examCode}')">查看答题详情</button>`
+              : '<span style="font-size:13px; color:#999;">无答题明细</span>'}
+          </div>
+          <div class="detail-panel hidden" id="detail-${exam.examCode}">
+            ${exam.details && exam.details.length > 0 ? 
+              exam.details.map((d, i) => {
+                // 三档着色：满分绿、部分分黄、0分红（correct 由后端按满分判定）
+                let colorClass = 'score-zero';
+                let icon = '✗';
+                if (d.score === 0) {
+                  colorClass = 'score-zero';
+                  icon = '✗';
+                } else if (d.correct) {
+                  colorClass = 'score-full';
+                  icon = '✓';
+                } else {
+                  colorClass = 'score-partial';
+                  icon = '◐';
+                }
+                return `
+                <div class="detail-item">
+                  <div style="flex:1; min-width:0;">
+                    <div style="display:flex; align-items:center; gap:5px; white-space:nowrap;">
+                      <span style="flex:none;">第 ${d.qNo} 题</span>
+                      ${diffMeta[d.difficulty] ? `<span style="flex:none; display:inline-block; width:40px; text-align:center; background:${diffMeta[d.difficulty][1]}; color:#fff; font-size:12px; line-height:20px; border-radius:10px;">${diffMeta[d.difficulty][0]}</span>` : '<span style="flex:none; display:inline-block; width:40px; text-align:center; background:#999; color:#fff; font-size:12px; line-height:20px; border-radius:10px;">未设置</span>'}
+                    </div>
+                    ${(resolveKpKey(exam.questionKp?.[i]).split(' / ').pop() || '') ? `<div style="color:#1890ff; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:2px;">${resolveKpKey(exam.questionKp?.[i]).split(' / ').pop()}</div>` : ''}
+                  </div>
+                  <span class="${colorClass}" style="flex:none; min-width:96px; text-align:right; white-space:nowrap; box-sizing:border-box;">
+                    ${icon} 得分：${d.score}
+                    <div style="font-size:12px; color:#666;">班级正确率：${(exam.qAvgRates?.[i] || 0).toFixed(1)}%</div>
+                  </span>
+                </div>
+              `}).join('') : 
+              '<div class="detail-item"><span>答题明细</span><span>本次未导出明细</span></div>'
+            }
+          </div>
+        `;
+        listEl.appendChild(card);
+      });
+    }
+
+    function toggleDetail(examCode) {
+      const el = document.getElementById(`detail-${examCode}`);
+      el.classList.toggle('hidden');
+      if (!el.classList.contains('hidden')) {
+        // 展开后自动滚动到第一道错题
+        setTimeout(() => {
+          const wrongItems = el.querySelectorAll('.score-zero, .score-partial');
+          if (wrongItems.length > 0) {
+            wrongItems[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 100);
+      }
+    }
+
+    function initChart() {
+      setTimeout(() => {
+        trendChart = echarts.init(document.getElementById('trend-chart'));
+        rankChart = echarts.init(document.getElementById('rank-chart'));
+        radarChart = echarts.init(document.getElementById('radar-chart'));
+        renderChart();
+        window.addEventListener('resize', () => {
+          trendChart.resize();
+          rankChart.resize();
+          if (radarChart) radarChart.resize();
+        });
+      }, 100);
+    }
+
+    function clearKpSelection() {
+      selectedKpIds = [];
+      confirmKpSelect();
+    }
+
+    function renderWeakTip() {
+      const tipEl = document.getElementById('weak-tip');
+      if (!studentData.exams || studentData.exams.length < 1) {
+        tipEl.classList.add('hidden');
+        return;
+      }
+      // 收集所有有班级平均的知识点，算最近3场的平均差
+      const weakPoints = [];
+      const goodPoints = [];
+      const latestExams = studentData.exams.slice(-3);
+      if (!latestExams.length) {
+        tipEl.classList.add('hidden');
+        return;
+      }
+      // 取所有知识点路径（键可能是编号id或旧版路径，统一解析为路径）
+      const allKpPaths = new Set();
+      latestExams.forEach(exam => {
+        Object.keys(exam.classKpRates || {}).forEach(p => {
+          const path = resolveKpKey(p);
+          if (path) allKpPaths.add(path);
+        });
+      });
+      allKpPaths.forEach(p => {
+        let sumDiff = 0, cnt = 0;
+        const dataKey = kpPathToId[p] || p;
+        latestExams.forEach(exam => {
+          if (exam.classKpRates[dataKey] !== undefined && exam.kp && exam.kp[dataKey] !== undefined) {
+            sumDiff += (exam.kp[dataKey] - exam.classKpRates[dataKey]);
+            cnt++;
+          }
+        });
+        if (cnt > 0) {
+          const avgDiff = sumDiff / cnt;
+          const name = p.split(' / ').pop();
+          if (avgDiff < -10) weakPoints.push({name, diff: Math.round(avgDiff)});
+          if (avgDiff > 10) goodPoints.push({name, diff: Math.round(avgDiff)});
+        }
+      });
+      let html = '📊 学情总结：<br>';
+      if (weakPoints.length > 0) {
+        html += `⚠️ 薄弱点：${weakPoints.map(w => `<span class="weak-kp-link" onclick="quickSelectKpByName('${w.name}')">${w.name}</span>（低于班级${Math.abs(w.diff)}%）`).join('、')}<br>`;
+      }
+      if (goodPoints.length > 0) {
+        html += `✅ 优势项：${goodPoints.map(g => `<span class="weak-kp-link" onclick="quickSelectKpByName('${g.name}')">${g.name}</span>（高于班级${g.diff}%）`).join('、')}`;
+      }
+      if (weakPoints.length === 0 && goodPoints.length === 0) {
+        html += '📈 各知识点掌握与班级平均持平，继续保持';
+      }
+      tipEl.innerHTML = html;
+      tipEl.classList.remove('hidden');
+    }
+
+    function quickSelectKpByName(kpName) {
+      // 从allKpPaths里找到完整路径（键可能是编号id或旧版路径，统一解析为路径）
+      const allKpPaths = new Set();
+      studentData.exams.forEach(exam => {
+        Object.keys(exam.classKpRates || {}).forEach(p => {
+          const path = resolveKpKey(p);
+          if (path) allKpPaths.add(path);
+        });
+      });
+      let targetPath = null;
+      for (const p of allKpPaths) {
+        if (p.split(' / ').pop() === kpName) {
+          targetPath = p;
+          break;
+        }
+      }
+      if (targetPath && !selectedKpIds.includes(targetPath)) {
+        if (selectedKpIds.length >= 10) {
+          alert('最多只能选10个知识点，先清空再选');
+          return;
+        }
+        selectedKpIds.push(targetPath);
+        renderChart();
+      }
+    }
+
+    function renderRankChart() {
+      if (!rankChart) return;
+      const theme = getChartTheme();
+      const xData = studentData.exams.map(e => e.examName);
+      const rankData = studentData.exams.map(e => e.rank);
+      const studentCount = studentData.exams[0]?.studentCount || 1;
+      rankChart.setOption({
+        tooltip: { trigger: 'axis', backgroundColor: theme.tooltipBg, textStyle: { color: theme.tooltipText } },
+        grid: { top: 20, bottom: 140, left: 40, right: 20 },
+        xAxis: { type: 'category', data: xData, axisLabel: { color: theme.textColor, rotate: 45 }, axisLine: { lineStyle: { color: theme.axisLineColor } } },
+        yAxis: { type: 'value', name: '排名', inverse: true, min: 1, max: studentCount, nameTextStyle: { color: theme.textColor }, axisLabel: { color: theme.textColor }, splitLine: { lineStyle: { color: theme.splitLineColor } } },
+        series: [{
+          name: '班级排名',
+          type: 'line',
+          data: rankData,
+          smooth: true,
+          lineStyle: { width: 2, color: '#fa8c16' },
+          itemStyle: { color: '#fa8c16' },
+          label: {
+            show: true,
+            // 排名接近顶部（1-3名）时标签放点下方，避免与纵轴顶端刻度"1"重叠遮挡
+            position: function (p) { return p.value <= 3 ? 'bottom' : 'top'; },
+            formatter: '第{c}名',
+            color: theme.textColor,
+            distance: 6
+          }
+        }]
+      }, true);
+    }
+
+    function exportChartImage() {
+      if (!trendChart) {
+        alert('图表还未加载完成');
+        return;
+      }
+      trendChart.setOption({ animation: false });
+      const url = trendChart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#fff' });
+      trendChart.setOption({ animation: true });
+      const link = document.createElement('a');
+      link.download = `成绩趋势_${studentName}.png`;
+      link.href = url;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    function getChartTheme() {
+      const isDark = document.body.classList.contains('dark');
+      return {
+        textColor: isDark ? '#eee' : '#333',
+        axisLineColor: isDark ? '#555' : '#ccc',
+        splitLineColor: isDark ? '#333' : '#eee',
+        tooltipBg: isDark ? '#16213e' : '#fff',
+        tooltipText: isDark ? '#eee' : '#333'
+      };
+    }
+
+    function renderChart() {
+      if (!trendChart) return;
+      const theme = getChartTheme();
+      const xData = studentData.exams.map(e => e.examName);
+      let series = [];
+      let yAxis = {};
+      let legend = undefined;
+      
+      if (selectedKpIds.length > 0) {
+        // 知识点趋势模式：显示多个知识点得分率曲线
+        yAxis = { type: 'value', name: '得分率%', min: 0, max: 100, nameTextStyle: { color: theme.textColor, padding: [0, 0, 0, 30] }, axisLabel: { color: theme.textColor }, splitLine: { lineStyle: { color: theme.splitLineColor } } };
+        legend = { top: 15, type: 'plain', textStyle: { color: theme.textColor, fontSize: 12 }, width: '90%' };
+        const colors = ['#1890ff', '#52c41a', '#fa8c16', '#722ed1', '#eb2f96', '#13c2c2', '#fa541c', '#2f54eb', '#a0d911', '#f5222d'];
+        selectedKpIds.forEach((kpPath, idx) => {
+          const kpName = kpPath.split(' / ').pop();
+          const color = colors[idx % colors.length];
+          // 树上的路径 → 考试数据键：新版考试数据按编号存（kpPathToId），旧版按路径存，均兼容
+          const dataKey = kpPathToId[kpPath] || kpPath;
+          // 学生自己的得分率：直接读后端导出的exam.kp，前端不做任何计算
+          const myData = studentData.exams.map(exam => {
+            return exam.kp?.[dataKey] ?? null;
+          });
+          series.push({
+            name: kpName + '（我）',
+            type: 'line',
+            color: color,
+            data: myData,
+            smooth: true,
+            lineStyle: { width: 2, color: color },
+            itemStyle: { color: color },
+            connectNulls: true,
+          });
+          // 班级平均得分率：直接读后端classKpRates
+          const classData = studentData.exams.map(exam => {
+            return exam.classKpRates?.[dataKey] ?? null;
+          });
+          series.push({
+            name: kpName + '（班级平均）',
+            type: 'line',
+            color: color,
+            data: classData,
+            smooth: true,
+            lineStyle: { width: 1, type: 'dashed', color: color },
+            itemStyle: { color: color },
+            connectNulls: true,
+          });
+        });
+      } else {
+        // 默认总分趋势模式
+        const isRate = displayMode === 'rate';
+        yAxis = isRate 
+          ? { type: 'value', name: '得分率%', min: 0, max: 100, nameTextStyle: { color: theme.textColor, padding: [0, 0, 0, 30] }, axisLabel: { color: theme.textColor }, splitLine: { lineStyle: { color: theme.splitLineColor } } }
+          : { type: 'value', name: '分数', nameTextStyle: { color: theme.textColor, padding: [0, 0, 0, 30] }, axisLabel: { color: theme.textColor }, splitLine: { lineStyle: { color: theme.splitLineColor } } };
+        series = [
+          {
+            name: isRate ? '我的得分率' : '我的分数',
+            type: 'line',
+            color: '#1890ff',
+            data: studentData.exams.map(e => isRate ? e.rate : e.score),
+            smooth: true,
+            lineStyle: { width: 3, color: '#1890ff' },
+            itemStyle: { color: '#1890ff' },
+            label: { show: true, position: 'top', formatter: isRate ? '{c}%' : '{c}分', color: theme.textColor }
+          },
+          {
+            name: '班级平均分',
+            type: 'line',
+            color: '#999',
+            data: studentData.exams.map(e => isRate ? e.avgRate : e.avgScore),
+            smooth: true,
+            lineStyle: { width: 1, type: 'dashed', color: '#999' },
+            itemStyle: { color: '#999' },
+          }
+        ];
+        legend = { top: 45, textStyle: { color: theme.textColor } };
+      }
+      
+      const option = {
+        tooltip: { trigger: 'axis', backgroundColor: theme.tooltipBg, textStyle: { color: theme.tooltipText } },
+        legend: { top: 15, type: 'plain', textStyle: { color: theme.textColor, fontSize: 12 }, width: '90%' },
+        grid: { top: 120, bottom: 140, left: 50, right: 30 },
+        xAxis: { type: 'category', data: xData, axisLabel: { color: theme.textColor, rotate: 45 }, axisLine: { lineStyle: { color: theme.axisLineColor } } },
+        yAxis: yAxis,
+        series: series,
+      };
+      trendChart.setOption(option, true);
+      renderRankChart();
+      renderWeakTip();
+      renderRadarChart();
+    }
+
+    // 聚合全部考试中某知识点的得分率（field='mine' 个人 / 'class' 班级平均），
+    // 按各场该知识点题目数加权平均；权重=该场 questionKp 中属于该知识点子树（含自身）的题数，
+    // questionKp 缺失/为空时按 1 兜底；无任何场次数据返回 null
+    function aggregateKpRate(kpPath, field) {
+      const dataKey = kpPathToId[kpPath] || kpPath;
+      const subtreeIds = kpSubtreeIds[kpPath] || [dataKey];
+      let sum = 0, weightSum = 0;
+      studentData.exams.forEach(exam => {
+        const src = field === 'class' ? exam.classKpRates : exam.kp;
+        const v = src ? src[dataKey] : undefined;
+        if (v == null) return;
+        let w = 0;
+        (exam.questionKp || []).forEach(k => { if (subtreeIds.includes(k)) w++; });
+        if (w === 0) w = 1;
+        sum += v * w;
+        weightSum += w;
+      });
+      return weightSum > 0 ? sum / weightSum : null;
+    }
+
+    function renderRadarChart() {
+      const radarEl = document.getElementById('radar-chart');
+      if (!radarEl) return;
+      if (selectedKpIds.length < 3) {
+        radarEl.style.display = 'none';
+        return;
+      }
+      radarEl.style.display = 'block';
+      setTimeout(() => {
+        if (!radarChart) radarChart = echarts.init(radarEl);
+        radarChart.resize();
+        const theme = getChartTheme();
+        const indicators = selectedKpIds.map(kpPath => ({
+          name: kpPath.split(' / ').pop(),
+          max: 100
+        }));
+        // 聚合全部考试（题数加权平均）：不再只取最近一场，避免最近考试未考所选知识点时全为 0
+        const noDataMine = new Set();
+        const noDataClass = new Set();
+        const myValues = selectedKpIds.map(kpPath => {
+          const v = aggregateKpRate(kpPath, 'mine');
+          if (v == null) { noDataMine.add(kpPath.split(' / ').pop()); return 0; }
+          return Math.round(v * 10) / 10;
+        });
+        const classValues = selectedKpIds.map(kpPath => {
+          const v = aggregateKpRate(kpPath, 'class');
+          if (v == null) { noDataClass.add(kpPath.split(' / ').pop()); return 0; }
+          return Math.round(v * 10) / 10;
+        });
+        radarChart.setOption({
+          title: { text: '全部考试知识点掌握雷达图', subtext: '按各场该知识点题数加权平均', left: 'center', top: 6, textStyle: { color: theme.textColor, fontSize: 14 }, subtextStyle: { color: theme.textColor, fontSize: 10 } },
+          tooltip: {
+            trigger: 'item',
+            formatter: function (params) {
+              const isClass = params.name === '班级平均';
+              const noData = isClass ? noDataClass : noDataMine;
+              const vals = params.value || [];
+              let html = params.name + '<br/>';
+              indicators.forEach((ind, i) => {
+                const v = vals[i];
+                html += noData.has(ind.name)
+                  ? ind.name + '：未考查（各场均无数据）<br/>'
+                  : ind.name + '：' + (v == null ? '-' : v) + '%<br/>';
+              });
+              return html;
+            }
+          },
+          legend: { data: ['我', '班级平均'], right: 20, top: 'middle', textStyle: { color: theme.textColor }, orient: 'vertical', align: 'left' },
+          radar: {
+            indicator: indicators,
+            axisName: { color: theme.textColor, fontSize: 12 },
+            radius: '55%',
+            center: ['40%', '55%'],
+            splitNumber: 4
+          },
+          series: [{
+            type: 'radar',
+            data: [
+              { value: myValues, name: '我', areaStyle: { color: 'rgba(24,144,255,0.3)' }, lineStyle: { color: '#1890ff' } },
+              { value: classValues, name: '班级平均', areaStyle: { color: 'rgba(153,153,153,0.2)' }, lineStyle: { color: '#999' } }
+            ]
+          }]
+        }, true);
+      }, 50);
+    }
+
+    function closeWrongBook() {
+      document.getElementById('wrong-dialog').style.display = 'none';
+    }
+    function openWrongBook() {
+      const listEl = document.getElementById('wrong-list');
+      const wrongItems = [];
+      studentData.exams.forEach(exam => {
+        if (!exam.details) return;
+        exam.details.forEach((d, i) => {
+          // 只有不是满分的题才进错题本：0分或者部分分
+          if (!d.correct) {
+            const kpPath = resolveKpKey(exam.questionKp?.[i]);
+            const kpName = kpPath ? kpPath.split(' / ').pop() : '未分类';
+            wrongItems.push({
+              examName: exam.examName,
+              qNo: d.qNo,
+              score: d.score,
+              kpName: kpName,
+              avgRate: (exam.qAvgRates?.[i] || 0).toFixed(1)
+            });
+          }
+        });
+      });
+      if (wrongItems.length === 0) {
+        listEl.innerHTML = '<div style="text-align:center; color:#999; padding:40px;">太棒了，目前没有错题！</div>';
+      } else {
+        // 按知识点分组
+        const grouped = {};
+        wrongItems.forEach(w => {
+          if (!grouped[w.kpName]) grouped[w.kpName] = [];
+          grouped[w.kpName].push(w);
+        });
+        listEl.innerHTML = Object.keys(grouped).map(kp => `
+          <div style="margin-bottom:16px;">
+            <h4 style="color:#1890ff; margin-bottom:8px;">📚 ${kp}（${grouped[kp].length}题）</h4>
+            ${grouped[kp].map(w => `
+              <div style="padding:8px; border-bottom:1px solid #f0f0f0; font-size:14px;">
+                <div style="display:flex; justify-content:space-between;">
+                  <span>${w.examName} - 第${w.qNo}题</span>
+                  <span style="color:#fa541c;">得分：${w.score}</span>
+                </div>
+                <div style="font-size:12px; color:#999; margin-top:4px;">班级正确率：${w.avgRate}%</div>
+              </div>
+            `).join('')}
+          </div>
+        `).join('');
+      }
+      document.getElementById('wrong-dialog').style.display = 'block';
+    }
+
+    // 加载知识地图（预加载 + 弹窗共用）：填充 knowledgeMap/kpCountMap/kpIdToPath/kpPathToId/kpSubtreeIds
+    // 登录后即调用，确保答题详情、折线图、雷达图在首次渲染时就绪，避免知识点id乱码
+    async function loadKpMap() {
+      if (knowledgeMap) return;
+      try {
+        const res = await fetch('knowledge-map.json', { cache: 'no-cache' });
+        const raw = await res.json();
+        knowledgeMap = Array.isArray(raw) ? raw : (raw.paths || []);
+        kpCountMap = raw.questionCount || {};
+        kpIdToPath = raw.ids || {}; // 编号 -> 路径（编号压缩）
+        kpPathToId = {};
+        Object.entries(kpIdToPath).forEach(([id, p]) => { kpPathToId[p] = id; });
+        // 子树id映射：路径 -> 该路径子树全部节点id（含自身），供知识点聚合题数加权
+        // 注意 paths 元素是段数组（如 ["电学","电流和电路"]），须 join(' / ') 与 ids 键空间对齐
+        kpSubtreeIds = {};
+        knowledgeMap.forEach(p => {
+          const segs = Array.isArray(p) ? p : String(p).split(' / ');
+          const pathStr = segs.join(' / ');
+          const id = kpPathToId[pathStr];
+          if (!id) return;
+          for (let i = 1; i <= segs.length; i++) {
+            const ancestor = segs.slice(0, i).join(' / ');
+            (kpSubtreeIds[ancestor] = kpSubtreeIds[ancestor] || []).push(id);
+          }
+        });
+        // 前端遍历所有考试根级questionKp数组，统计每个知识点的题数，支持增量发布
+        const selfCount = {};
+        studentData.exams.forEach(exam => {
+          (exam.questionKp || []).forEach(kp => {
+            // questionKp 元素可能是编号id（新导出）或路径字符串（旧导出）
+            const kpPath = resolveKpKey(kp);
+            if (kpPath) {
+              const parts = kpPath.split(' / ');
+              for(let i=1; i<=parts.length; i++) {
+                const key = parts.slice(0,i).join(' / ');
+                selfCount[key] = (selfCount[key]||0)+1;
+              }
+            }
+          });
+        });
+        kpCountMap = {...kpCountMap, ...selfCount};
+      } catch (e) {
+        knowledgeMap = null;
+        throw e;
+      }
+    }
+
+    async function openKpDialog() {
+      document.getElementById('kp-dialog').style.display = 'block';
+      try {
+        await loadKpMap();
+      } catch (e) {
+        document.getElementById('kp-tree').innerHTML = '<div style="color:#ff4d4f; text-align:center;">未导出知识点目录</div>';
+        return;
+      }
+      renderKpTree();
+    }
+    function closeKpDialog() {
+      document.getElementById('kp-dialog').style.display = 'none';
+    }
+    let expandedPaths = new Set(); // 保存当前展开的节点路径
+    function toggleFav(fullPath, e) {
+      e.stopPropagation();
+      if (favKps.includes(fullPath)) {
+        favKps = favKps.filter(p => p !== fullPath);
+      } else {
+        favKps.push(fullPath);
+      }
+      localStorage.setItem('favKps', JSON.stringify(favKps));
+      renderKpTree(document.getElementById('kp-search').value);
+    }
+    function renderFavArea() {
+      const favArea = document.getElementById('fav-area');
+      const favList = document.getElementById('fav-list');
+      if (favKps.length === 0) {
+        favArea.style.display = 'none';
+        return;
+      }
+      favArea.style.display = 'block';
+      favList.innerHTML = favKps.map(p => `
+        <span style="display:inline-block; background:#e6f7ff; color:#1890ff; padding:2px 8px; border-radius:4px; margin:2px; font-size:12px; cursor:pointer;" onclick="quickSelectFav('${p.replace(/'/g, "\\'")}')">
+          ${p.split(' / ').pop()}
+          <span style="margin-left:4px; color:#fa8c16;" onclick="event.stopPropagation(); toggleFav('${p.replace(/'/g, "\\'")}', event);">×</span>
+        </span>
+      `).join('');
+    }
+    function quickSelectFav(fullPath) {
+      if (!selectedKpIds.includes(fullPath)) {
+        if (selectedKpIds.length >= 10) {
+          alert('最多只能选10个知识点');
+          return;
+        }
+        selectedKpIds.push(fullPath);
+      }
+      renderKpTree(document.getElementById('kp-search').value);
+    }
+    function renderKpTree(filter='') {
+      renderFavArea();
+      const paths = Array.isArray(knowledgeMap) ? knowledgeMap : [];
+      // 把路径数组转成树形结构，同时自动过滤总题数为0的分支
+      const tree = {};
+      paths.forEach(pArr => {
+        // 兼容段数组（新导出）与字符串路径（异常包），统一按段处理
+        const segs = Array.isArray(pArr) ? pArr : String(pArr).split(' / ');
+        let node = tree;
+        let currentPath = '';
+        for (let i = 0; i < segs.length; i++) {
+          const part = segs[i];
+          currentPath = currentPath ? currentPath + ' / ' + part : part;
+          // 总题数为0的分支直接跳过，不渲染
+          const count = kpCountMap[currentPath] || 0;
+          if (count === 0) break;
+          if (!node[part]) node[part] = {};
+          node = node[part];
+        }
+      });
+      // 递归渲染可折叠树
+      function renderTree(node, level=0, path='') {
+        return Object.entries(node).map(([name, children]) => {
+          const fullPath = path ? path + ' / ' + name : name;
+          if (filter && !fullPath.includes(filter)) return '';
+          const hasChildren = Object.keys(children).length > 0;
+          const paddingLeft = level * 20;
+          const isExpanded = expandedPaths.has(fullPath);
+          // 所有层级都显示复选框，勾选父节点不自动联动子节点
+          const checkbox = `<input type="checkbox" value="${fullPath}" ${selectedKpIds.includes(fullPath) ? 'checked' : ''} onchange="event.stopPropagation(); onKpChange(this);" style="margin-right:6px; cursor:pointer;">`;
+          // 题数直接用累加后的正确值
+          const thisCount = kpCountMap[fullPath] || 0;
+          // 星标
+          const isFav = favKps.includes(fullPath);
+          const star = `<span onclick="toggleFav('${fullPath.replace(/'/g, "\\'")}', event)" style="cursor:pointer; margin-left:8px; color:${isFav ? '#fa8c16' : '#ddd'};" title="收藏知识点">${isFav ? '★' : '☆'}</span>`;
+          return `
+            <div style="padding:4px 0; padding-left:${paddingLeft}px;">
+              ${hasChildren ? `<span style="cursor:pointer; display:inline-block; width:16px;" onclick="event.stopPropagation(); const parent = this.parentElement; const childContainer = parent.lastElementChild; const isHidden = childContainer.style.display === 'none'; childContainer.style.display = isHidden ? 'block' : 'none'; this.textContent = isHidden ? '▼' : '▶'; if (isHidden) expandedPaths.add('${fullPath}'); else expandedPaths.delete('${fullPath}');">${isExpanded ? '▼' : '▶'} </span>` : `<span style="display:inline-block; width:16px;"></span>`}
+              ${checkbox}
+              <span style="font-size:14px; ${hasChildren ? 'font-weight:bold;' : ''}">${name}</span>
+              <span style="color:#1890ff; font-size:12px; margin-left:8px;">共${thisCount}题</span>
+              ${star}
+              <div style="display:${isExpanded ? 'block' : 'none'};">
+                ${hasChildren ? renderTree(children, level+1, fullPath) : ''}
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+      document.getElementById('kp-tree').innerHTML = renderTree(tree) || '<div style="color:#999; text-align:center;">无匹配知识点</div>';
+    }
+    function onKpChange(cb) {
+      const fullPath = cb.value;
+      const isChecked = cb.checked;
+      // 只选当前节点本身，不自动全选子项，计算时自动统计该节点下所有题目
+      if (isChecked) {
+        if (selectedKpIds.length >= 10) {
+          alert('最多只能选10个知识点');
+          cb.checked = false;
+          return;
+        }
+        if (!selectedKpIds.includes(fullPath)) {
+          selectedKpIds.push(fullPath);
+        }
+      } else {
+        selectedKpIds = selectedKpIds.filter(id => id !== fullPath);
+      }
+      // 重新渲染树，保持勾选状态
+      renderKpTree(document.getElementById('kp-search').value);
+    }
+    function removeKp(index) {
+      selectedKpIds.splice(index, 1);
+      confirmKpSelect();
+    }
+    function confirmKpSelect() {
+      closeKpDialog();
+      // 显示已选知识点标签
+      const tipEl = document.getElementById('kp-tip');
+      if (selectedKpIds.length > 0) {
+        const tagsHtml = selectedKpIds.map((kp, idx) => `
+          <span style="display:inline-block; background:#e6f7ff; color:#1890ff; padding:2px 8px; border-radius:4px; margin:2px; font-size:12px;">
+            ${kp.split(' / ').pop()}
+            <span style="margin-left:4px; cursor:pointer; color:#ff4d4f;" onclick="removeKp(${idx})">×</span>
+          </span>
+        `).join('');
+        tipEl.innerHTML = `已选 ${selectedKpIds.length} 个知识点：<br>${tagsHtml}`;
+      } else {
+        tipEl.textContent = '未选择知识点，默认总分趋势';
+      }
+      renderChart();
+    }
+  </script>
+</body>
+</html>
