@@ -23,7 +23,7 @@
     body.dark .header { background: #16213e; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
     .card { background: white; padding: 20px; border-radius: 12px; margin-bottom: 16px; border: 1px solid #91d5ff; }
     body.dark .card { background: #16213e; border-color: #0f3460; }
-    .exam-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    .exam-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; max-height: 620px; overflow-y: auto; padding-right: 4px; }
     .exam-card { background: white; padding: 20px; border-radius: 12px; cursor: pointer; transition: all 0.2s; border: 1px solid #91d5ff; }
     body.dark .exam-card { background: #0f3460; border-color: #164580; }
     .exam-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); transform: translateY(-2px); }
@@ -31,7 +31,7 @@
     body.dark .exam-code { color: #aaa; }
     .exam-name { font-size: 18px; font-weight: 600; margin: 8px 0; }
     .exam-score { font-size: 32px; font-weight: 700; color: #1890ff; }
-    .chart-container { height: 600px; border: 1px solid #91d5ff; border-radius: 8px; padding: 8px; background: transparent; }
+    .chart-container { height: 620px; border: 1px solid #91d5ff; border-radius: 8px; padding: 8px; background: transparent; }
     body.dark .chart-container { border-color: #0f3460; }
     .radar-container { height: 350px; border: 1px solid #91d5ff; border-radius: 8px; padding: 8px; margin-top:16px; display:none; }
     body.dark .radar-container { border-color: #0f3460; }
@@ -138,6 +138,11 @@
           <h2 id="welcome-text">欢迎，同学</h2>
         </div>
         <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+          <!-- 小考/统考 胶囊切换（无统考数据时自动隐藏，登录后由 loadBatchData 控制显隐） -->
+          <div id="view-toggle" class="hidden" style="display:inline-flex; border:1px solid #1890ff; border-radius:999px; overflow:hidden; font-size:13px;">
+            <span id="tg-small" onclick="setView('small')" style="padding:5px 14px; cursor:pointer; background:#1890ff; color:#fff; user-select:none;">小考</span>
+            <span id="tg-batch" onclick="setView('batch')" style="padding:5px 14px; cursor:pointer; color:#1890ff; user-select:none;">统考</span>
+          </div>
           <button class="btn" style="width: auto; padding: 5px 12px; font-size: 13px; background: #333;" onclick="toggleDarkMode()" id="btn-dark">🌙 暗黑</button>
           <button class="btn" style="width: auto; padding: 5px 12px; font-size: 13px;" onclick="openKpDialog()">选知识点</button>
           <button class="btn" style="width: auto; padding: 5px 12px; font-size: 13px; background: #666;" onclick="clearKpSelection()">一键清空</button>
@@ -148,6 +153,8 @@
         </div>
       </div>
 
+      <!-- 小考视图（现有内容保持不变；统考视图单独容器） -->
+      <div id="small-view">
       <!-- 成绩趋势图 -->
       <div class="card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
@@ -156,7 +163,7 @@
         <div id="weak-tip" class="weak-tip hidden"></div>
         <div id="kp-tip" style="margin-bottom:12px; font-size:14px; color:#666;">未选择知识点，默认总分趋势</div>
         <div id="trend-chart" class="chart-container"></div>
-        <div id="rank-chart" class="chart-container" style="margin-top:20px; height:350px;"></div>
+        <div id="rank-chart" class="chart-container" style="margin-top:20px; height:620px;"></div>
         <div id="radar-chart" class="radar-container"></div>
       </div>
 
@@ -164,6 +171,22 @@
       <div class="card">
         <h3 style="margin-bottom: 16px;">历次考试成绩</h3>
         <div class="exam-list" id="exam-list"></div>
+      </div>
+      </div><!-- /small-view -->
+
+      <!-- 大型统考视图（有统考成绩才显示；无统考数据时切换按钮自动隐藏） -->
+      <div id="batch-view" class="hidden">
+        <div class="card">
+          <h3 style="margin-bottom: 16px;">统考总分趋势（最近10次统考）</h3>
+          <div id="batch-trend-chart" class="chart-container" style="height:620px;"></div>
+          <div id="batch-rank-chart" class="chart-container" style="margin-top:20px; height:620px;"></div>
+        </div>
+        <div class="card">
+          <h3 style="margin-bottom: 12px;">科目历次统考趋势</h3>
+          <div id="batch-subject-btns" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;"></div>
+          <div id="batch-subject-chart" class="chart-container" style="height:620px;"></div>
+          <div id="batch-subject-rank-chart" class="chart-container" style="margin-top:20px; height:620px;"></div>
+        </div>
       </div>
     </div>
 
@@ -249,14 +272,19 @@
       const isDark = document.body.classList.contains('dark');
       localStorage.setItem('darkMode', isDark);
       document.getElementById('btn-dark').textContent = isDark ? '☀️ 明亮' : '🌙 暗黑';
-      // 图表重新渲染适配暗色
+      // 图表重新渲染适配暗色（小考 + 统考全部图表）
       if (trendChart) renderChart();
       if (rankChart) renderRankChart();
+      if (batchViewActive) {
+        renderBatchCharts();
+        renderBatchSubjectCharts();
+      }
     }
     let classCode = '';
     let studentName = '';
     let studentId = '';
     let indexList = null;
+    let classKey = null; // 班级派生密钥（全局：小考/统考解密共用；无密码班级为 null）
     let knowledgeMap = null;
     let studentData = null;
     let selectedKpIds = [];
@@ -264,11 +292,21 @@
     let rankChart = null;
     let radarChart = null;
     let displayMode = 'rate'; // rate=得分率, score=原始分
+
+    // ── 大型统考视图状态（2026-10-22） ──
+    let batchData = null;   // 该生各次统考聚合数据（升序）
+    let currentBatchSubject = 0;
+    let batchViewActive = false;
+    let batchTrendChart = null, batchRankChart = null, batchSubjChart = null, batchSubjRankChart = null;
+    const BATCH_COLOR_MINE = '#fa8c16';   // 橙：该生
+    const BATCH_COLOR_CLASS = '#1890ff';  // 蓝：班级平均
+    const BATCH_COLOR_SCHOOL = '#52c41a'; // 绿：全校平均
     let kpCountMap = {}; // 每个知识点的题目数量
     let kpIdToPath = {}; // 知识点编号 -> 路径（knowledge-map.ids，编号压缩解析用）
     let kpPathToId = {}; // 路径 -> 知识点编号
     let kpSubtreeIds = {}; // 路径 -> 该路径子树全部节点id数组（含自身），雷达图聚合权重用
-    let favKps = JSON.parse(localStorage.getItem('favKps') || '[]'); // 收藏的知识点
+    let favKps = []; // 收藏的知识点
+    try { favKps = JSON.parse(localStorage.getItem('favKps') || '[]'); } catch (e) { favKps = []; }
 
     // 把 exam 里的知识点键（可能是编号id或旧版路径）解析为路径字符串；解析不了则原样返回（兼容旧导出包）
     function resolveKpKey(kp) {
@@ -346,6 +384,33 @@
       await Promise.all(Array.from({ length: Math.min(limit, urls.length) }, worker));
       return results;
     }
+
+    // 小考无成绩兜底：仅参加统考的学生，在小考考试文件里定位不到 → 尝试从统考批次定位（成功即可登录，直接显示统考）
+    async function tryFindInBatch(classCode, studentId, studentName, schoolInput) {
+      try {
+        const batches = (indexList && indexList.batches) || [];
+        for (const b of batches) {
+          if (indexList.format === 'v4') {
+            const res = await fetch(`class/${classCode}/batch-${b.batchId}/students/${studentId}.json`, { cache: 'no-cache' });
+            if (!res.ok) continue;
+            const raw = await res.json();
+            if (!raw || !raw.enc) continue;
+            const me = decryptStudentData(raw.enc, studentName, studentId, classKey);
+            if (me && me.name === studentName && me.batch && !checkSchool(me, schoolInput)) return true;
+          } else {
+            const res = await fetch(`class/${classCode}/${b.path || ('batch_' + b.batchId + '.json')}`, { cache: 'no-cache' });
+            if (!res.ok) continue;
+            const raw = await res.json();
+            if (!raw || !Array.isArray(raw.students)) continue;
+            const enc = raw.students.find((s) => s.barcode === studentId);
+            if (!enc) continue;
+            const me = decryptStudentData(enc.enc, studentName, studentId, raw && raw.v === 3 ? classKey : null);
+            if (me && me.name === studentName && !checkSchool(me, schoolInput)) return true;
+          }
+        }
+        return false;
+      } catch (e) { return false; }
+    }
     function showLoading(total) {
       const mask = document.getElementById('loading-mask');
       if (mask) mask.classList.remove('hidden');
@@ -412,7 +477,7 @@
         }
 
         // 班级派生密钥：校验通过后缓存取用（同班只派生一次；无密码班级为 null → 学生块走固定盐）
-        let classKey = null;
+        classKey = null;
         if (classConfig.passwordHash) {
           classKey = deriveClassKey(pwd, classConfig.kdf.salt, classConfig.kdf.iter);
         }
@@ -496,9 +561,12 @@
           }
           hideLoading();
           if (!found) {
-            errEl.textContent = '未找到该学号，请检查学号是否正确';
-            errEl.classList.remove('hidden');
-            return;
+            // 兜底：小考无成绩 → 尝试从统考批次定位（仅参加统考的学生直接显示统考）
+            if (!(await tryFindInBatch(classCode, studentId, studentName, schoolInput))) {
+              errEl.textContent = '未找到该学号，请检查学号是否正确';
+              errEl.classList.remove('hidden');
+              return;
+            }
           }
         } else {
         // 并行拉取全部考试文件（限并发 6）
@@ -571,9 +639,12 @@
         hideLoading();
 
         if (!found) {
-          errEl.textContent = '未找到该学号，请检查学号是否正确';
-          errEl.classList.remove('hidden');
-          return;
+          // 兜底：小考无成绩 → 尝试从统考批次定位（仅参加统考的学生直接显示统考）
+          if (!(await tryFindInBatch(classCode, studentId, studentName, schoolInput))) {
+            errEl.textContent = '未找到该学号，请检查学号是否正确';
+            errEl.classList.remove('hidden');
+            return;
+          }
         }
         } // 闭合 v3/v2 兼容分支（v4 分支已在上面完成）
 
@@ -583,9 +654,35 @@
         // 预加载知识地图：确保答题详情/折线/雷达渲染时 id→路径映射已就绪（修复乱码与取数断链）
         try { await loadKpMap(); } catch (e) { /* 无知识地图时知识点功能降级，不阻断登录 */ }
 
+        // 加载该生统考数据
+        try { await loadBatchData(); } catch (e) { console.warn('统考数据加载失败:', e); }
+        const hasSmall = studentData.exams && studentData.exams.length > 0;
+        const hasBatch = batchData && batchData.length > 0;
+        const viewToggle = document.getElementById('view-toggle');
+
+        // 先显示主页面，再初始化统考图表（否则 echarts 在隐藏容器 init 宽度为 0）
         document.getElementById('login-page').classList.add('hidden');
         document.getElementById('main-page').classList.remove('hidden');
         document.getElementById('welcome-text').textContent = `欢迎，${studentName}同学`;
+
+        if (hasBatch) {
+          if (hasSmall) {
+            // 小考、统考都有成绩 → 显示 小考/统考 胶囊，默认小考
+            viewToggle.classList.remove('hidden');
+            batchViewActive = false;
+            setView('small');
+          } else {
+            // 小考无成绩 → 隐藏切换按钮，直接显示统考成绩
+            viewToggle.classList.add('hidden');
+            batchViewActive = false;
+            setView('batch');
+          }
+        } else {
+          // 无统考成绩 → 隐藏切换按钮，仅小考视图
+          viewToggle.classList.add('hidden');
+          batchViewActive = false;
+          setView('small');
+        }
 
         renderExamList();
         initChart();
@@ -599,6 +696,14 @@
     function logout() {
       document.getElementById('main-page').classList.add('hidden');
       document.getElementById('login-page').classList.remove('hidden');
+      // 重置统考视图状态
+      batchViewActive = false;
+      batchData = null;
+      currentBatchSubject = 0;
+      document.getElementById('batch-view').classList.add('hidden');
+      document.getElementById('small-view').style.display = '';
+      const vt = document.getElementById('view-toggle');
+      if (vt) vt.classList.add('hidden');
     }
 
 
@@ -609,9 +714,13 @@
       document.getElementById('btn-rate').style.color = mode === 'rate' ? 'white' : '#333';
       document.getElementById('btn-score').style.background = mode === 'score' ? '#1890ff' : '#ddd';
       document.getElementById('btn-score').style.color = mode === 'score' ? 'white' : '#333';
-      // 重新渲染
+      // 重新渲染（小考视图 + 统考视图共用 displayMode）
       renderExamList();
       renderChart();
+      if (batchViewActive) {
+        renderBatchCharts();
+        renderBatchSubjectCharts();
+      }
     }
 
     function renderExamList() {
@@ -760,11 +869,12 @@
         }
       });
       let html = '📊 学情总结：<br>';
+      const escQuote = (s) => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
       if (weakPoints.length > 0) {
-        html += `⚠️ 薄弱点：${weakPoints.map(w => `<span class="weak-kp-link" onclick="quickSelectKpByName('${w.name}')">${w.name}</span>（低于班级${Math.abs(w.diff)}%）`).join('、')}<br>`;
+        html += `⚠️ 薄弱点：${weakPoints.map(w => `<span class="weak-kp-link" onclick="quickSelectKpByName('${escQuote(w.name)}')">${w.name}</span>（低于班级${Math.abs(w.diff)}%）`).join('、')}<br>`;
       }
       if (goodPoints.length > 0) {
-        html += `✅ 优势项：${goodPoints.map(g => `<span class="weak-kp-link" onclick="quickSelectKpByName('${g.name}')">${g.name}</span>（高于班级${g.diff}%）`).join('、')}`;
+        html += `✅ 优势项：${goodPoints.map(g => `<span class="weak-kp-link" onclick="quickSelectKpByName('${escQuote(g.name)}')">${g.name}</span>（高于班级${g.diff}%）`).join('、')}`;
       }
       if (weakPoints.length === 0 && goodPoints.length === 0) {
         html += '📈 各知识点掌握与班级平均持平，继续保持';
@@ -797,6 +907,204 @@
         selectedKpIds.push(targetPath);
         renderChart();
       }
+    }
+
+    // ── 大型统考视图：加载该生统考数据（v3/v4 布局兼容） ──
+    async function loadBatchData() {
+      batchData = null;
+      currentBatchSubject = 0;
+      const batches = (indexList && indexList.batches) || [];
+      if (batches.length === 0) return;
+      const isV4 = indexList.format === 'v4';
+      const urls = batches.map((b) => isV4
+        ? `class/${classCode}/batch-${b.batchId}/students/${studentId}.json`
+        : `class/${classCode}/${b.path || ('batch_' + b.batchId + '.json')}`);
+      const raws = await fetchAllWithLimit(urls, 6, { cache: 'no-cache' });
+      const list = [];
+      for (let i = 0; i < batches.length; i++) {
+        const b = batches[i];
+        const raw = raws[i];
+        if (!raw) continue; // 该生未参加该统考（404）
+        try {
+          let me = null;
+          if (isV4) {
+            me = decryptStudentData(raw.enc, studentName, studentId, classKey);
+          } else {
+            const encStudent = (raw.students || []).find((s) => s.barcode === studentId);
+            if (!encStudent) continue;
+            me = decryptStudentData(encStudent.enc, studentName, studentId, raw && raw.v === 3 ? classKey : null);
+            // v3 布局密文为顶层学生字段（无 batch 嵌套）→ 包装成统一结构，并补全科目/满分（存于 batch 文件顶层）
+            if (me && !me.batch && me.total != null) {
+              me = Object.assign({}, me, { batch: Object.assign({}, me, {
+                subjects: raw.subjects || [],
+                subjectFull: raw.subjectFull || [],
+                totalFull: raw.totalFull || 0,
+              }) });
+            }
+          }
+          if (!me.batch) continue;
+          list.push({
+            batchId: b.batchId,
+            batchName: me.batch.batchName || b.batchName || '大型统考',
+            createdAt: me.batch.createdAt || b.createdAt || 0,
+            subjects: me.batch.subjects || [],
+            subjectFull: me.batch.subjectFull || [],
+            totalFull: me.batch.totalFull || 0,
+            subjectScores: me.batch.subjectScores || [],
+            subjectRates: me.batch.subjectRates || [],
+            subjectClassRank: me.batch.subjectClassRank || [],
+            subjectSchoolRank: me.batch.subjectSchoolRank || [],
+            subjectDistrictRank: me.batch.subjectDistrictRank || [],
+            total: me.batch.total || 0,
+            totalRate: me.batch.totalRate || 0,
+            classRank: me.batch.classRank || 0,
+            schoolRank: me.batch.schoolRank != null ? me.batch.schoolRank : null,
+            districtRank: me.batch.districtRank != null ? me.batch.districtRank : null,
+            classAvg: me.batch.classAvg || null,
+            schoolAvg: me.batch.schoolAvg || null,
+            studentCount: me.batch.studentCount || 0,
+            schoolStudentCount: me.batch.schoolStudentCount || 0,
+          });
+        } catch (e) {
+          console.warn('统考解密失败:', b.batchId, e);
+        }
+      }
+      if (list.length > 0) {
+        list.sort((a, b) => Number(a.createdAt) - Number(b.createdAt));
+        batchData = list;
+      }
+    }
+
+    // 胶囊切换：小考 / 统考
+    function setView(v) {
+      const isBatch = v === 'batch';
+      if (isBatch === batchViewActive) return;
+      batchViewActive = isBatch;
+      const tgS = document.getElementById('tg-small');
+      const tgB = document.getElementById('tg-batch');
+      tgS.style.background = isBatch ? 'transparent' : '#1890ff';
+      tgS.style.color = isBatch ? '#1890ff' : '#fff';
+      tgB.style.background = isBatch ? '#1890ff' : 'transparent';
+      tgB.style.color = isBatch ? '#fff' : '#1890ff';
+      document.getElementById('small-view').style.display = isBatch ? 'none' : '';
+      document.getElementById('batch-view').classList.toggle('hidden', !isBatch);
+      if (isBatch) {
+        if (!batchTrendChart) {
+          batchTrendChart = echarts.init(document.getElementById('batch-trend-chart'));
+          batchRankChart = echarts.init(document.getElementById('batch-rank-chart'));
+          batchSubjChart = echarts.init(document.getElementById('batch-subject-chart'));
+          batchSubjRankChart = echarts.init(document.getElementById('batch-subject-rank-chart'));
+          window.addEventListener('resize', () => {
+            [batchTrendChart, batchRankChart, batchSubjChart, batchSubjRankChart].forEach((c) => c && c.resize());
+          });
+        }
+        renderBatchSubjectBtns();
+        renderBatchCharts();
+        renderBatchSubjectCharts();
+      } else {
+        renderChart();
+      }
+    }
+
+    // 科目切换按钮
+    function renderBatchSubjectBtns() {
+      const box = document.getElementById('batch-subject-btns');
+      box.innerHTML = '';
+      const names = (batchData && batchData[batchData.length - 1] && batchData[batchData.length - 1].subjects) || [];
+      if (names.length === 0) { box.textContent = '暂无科目数据'; return; }
+      names.forEach((n, i) => {
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.textContent = n;
+        btn.style.cssText = 'width:auto;padding:4px 14px;font-size:13px;' +
+          (i === currentBatchSubject ? 'background:#1890ff;color:#fff;' : 'background:#ddd;color:#333;');
+        btn.onclick = function () { currentBatchSubject = i; renderBatchSubjectBtns(); renderBatchSubjectCharts(); };
+        box.appendChild(btn);
+      });
+    }
+
+    // 图一：统考总分/得分率趋势（最近10次；橙该生 / 蓝班级平均 / 绿全校平均）
+    function renderBatchCharts() {
+      if (!batchTrendChart || !batchData) return;
+      const theme = getChartTheme();
+      const recent = batchData.slice(-10);
+      const xData = recent.map((b) => b.batchName);
+      const isRate = displayMode === 'rate';
+      const mine = recent.map((b) => (isRate ? b.totalRate : b.total));
+      const clsAvg = recent.map((b) => (b.classAvg ? (isRate ? b.classAvg.totalRate : b.classAvg.total) : null));
+      const schAvg = recent.map((b) => (b.schoolAvg ? (isRate ? b.schoolAvg.totalRate : b.schoolAvg.total) : null));
+      batchTrendChart.setOption({
+        tooltip: { trigger: 'axis', backgroundColor: theme.tooltipBg, textStyle: { color: theme.tooltipText } },
+        legend: { data: ['该生', '班级平均', '全校平均'], textStyle: { color: theme.textColor }, top: 8 },
+        grid: { top: 64, bottom: 120, left: 52, right: 20 },
+        xAxis: { type: 'category', data: xData, axisLabel: { color: theme.textColor, rotate: 45, fontSize: 11 }, axisLine: { lineStyle: { color: theme.axisLineColor } } },
+        yAxis: { type: 'value', name: isRate ? '得分率%' : '分数', nameTextStyle: { color: theme.textColor, padding: [0, 0, 0, 40] }, axisLabel: { color: theme.textColor }, splitLine: { lineStyle: { color: theme.splitLineColor } } },
+        series: [
+          { name: '该生', type: 'line', data: mine, smooth: true, lineStyle: { width: 2.5, color: BATCH_COLOR_MINE }, itemStyle: { color: BATCH_COLOR_MINE } },
+          { name: '班级平均', type: 'line', data: clsAvg, smooth: true, lineStyle: { width: 2, color: BATCH_COLOR_CLASS }, itemStyle: { color: BATCH_COLOR_CLASS } },
+          { name: '全校平均', type: 'line', data: schAvg, smooth: true, lineStyle: { width: 2, color: BATCH_COLOR_SCHOOL }, itemStyle: { color: BATCH_COLOR_SCHOOL } },
+        ],
+      }, true);
+      // 图二：统考排名趋势（橙班排 / 蓝校排 / 绿区排）
+      const rankC = recent.map((b) => (b.classRank || null));
+      const rankS = recent.map((b) => b.schoolRank);
+      const rankD = recent.map((b) => b.districtRank);
+      const maxRank = Math.max.apply(null, recent.map((b) => Math.max(b.studentCount || 1, b.schoolStudentCount || 1))) || 1;
+      batchRankChart.setOption({
+        tooltip: { trigger: 'axis', backgroundColor: theme.tooltipBg, textStyle: { color: theme.tooltipText } },
+        legend: { data: ['班级排名', '全校排名', '全区排名'], textStyle: { color: theme.textColor }, top: 8 },
+        grid: { top: 64, bottom: 120, left: 52, right: 20 },
+        xAxis: { type: 'category', data: xData, axisLabel: { color: theme.textColor, rotate: 45, fontSize: 11 }, axisLine: { lineStyle: { color: theme.axisLineColor } } },
+        yAxis: { type: 'value', name: '排名', inverse: true, min: 1, max: maxRank, nameTextStyle: { color: theme.textColor, padding: [0, 0, 0, 40] }, axisLabel: { color: theme.textColor }, splitLine: { lineStyle: { color: theme.splitLineColor } } },
+        series: [
+          { name: '班级排名', type: 'line', data: rankC, smooth: true, lineStyle: { width: 2.5, color: BATCH_COLOR_MINE }, itemStyle: { color: BATCH_COLOR_MINE } },
+          { name: '全校排名', type: 'line', data: rankS, smooth: true, lineStyle: { width: 2, color: BATCH_COLOR_CLASS }, itemStyle: { color: BATCH_COLOR_CLASS } },
+          { name: '全区排名', type: 'line', data: rankD, smooth: true, lineStyle: { width: 2, color: BATCH_COLOR_SCHOOL }, itemStyle: { color: BATCH_COLOR_SCHOOL } },
+        ],
+      }, true);
+    }
+
+    // 图三：科目历次统考 分数/得分率趋势；图四：科目排名趋势
+    function renderBatchSubjectCharts() {
+      if (!batchSubjChart || !batchData) return;
+      const theme = getChartTheme();
+      const recent = batchData.slice(-10);
+      const si = currentBatchSubject;
+      const xData = recent.map((b) => b.batchName);
+      const isRate = displayMode === 'rate';
+      const mine = recent.map((b) => (b.subjectScores[si] != null ? (isRate ? b.subjectRates[si] : b.subjectScores[si]) : null));
+      const clsAvg = recent.map((b) => (b.classAvg && b.classAvg.subjects ? (isRate ? b.classAvg.rates[si] : b.classAvg.subjects[si]) : null));
+      const schAvg = recent.map((b) => (b.schoolAvg && b.schoolAvg.subjects ? (isRate ? b.schoolAvg.rates[si] : b.schoolAvg.subjects[si]) : null));
+      const subjName = (recent[recent.length - 1] && recent[recent.length - 1].subjects[si]) || '科目';
+      batchSubjChart.setOption({
+        tooltip: { trigger: 'axis', backgroundColor: theme.tooltipBg, textStyle: { color: theme.tooltipText } },
+        legend: { data: ['该生', '班级平均', '全校平均'], textStyle: { color: theme.textColor }, top: 8 },
+        grid: { top: 64, bottom: 120, left: 52, right: 20 },
+        xAxis: { type: 'category', data: xData, axisLabel: { color: theme.textColor, rotate: 45, fontSize: 11 }, axisLine: { lineStyle: { color: theme.axisLineColor } } },
+        yAxis: { type: 'value', name: isRate ? '得分率%' : '分数', nameTextStyle: { color: theme.textColor, padding: [0, 0, 0, 40] }, axisLabel: { color: theme.textColor }, splitLine: { lineStyle: { color: theme.splitLineColor } } },
+        series: [
+          { name: '该生', type: 'line', data: mine, smooth: true, lineStyle: { width: 2.5, color: BATCH_COLOR_MINE }, itemStyle: { color: BATCH_COLOR_MINE } },
+          { name: '班级平均', type: 'line', data: clsAvg, smooth: true, lineStyle: { width: 2, color: BATCH_COLOR_CLASS }, itemStyle: { color: BATCH_COLOR_CLASS } },
+          { name: '全校平均', type: 'line', data: schAvg, smooth: true, lineStyle: { width: 2, color: BATCH_COLOR_SCHOOL }, itemStyle: { color: BATCH_COLOR_SCHOOL } },
+        ],
+      }, true);
+      // 图四：科目排名（班排橙 / 校排蓝 / 区排绿）
+      const rC = recent.map((b) => (b.subjectClassRank[si] || null));
+      const rS = recent.map((b) => (b.subjectSchoolRank[si] != null ? b.subjectSchoolRank[si] : null));
+      const rD = recent.map((b) => (b.subjectDistrictRank[si] != null ? b.subjectDistrictRank[si] : null));
+      const maxRank2 = Math.max.apply(null, recent.map((b) => Math.max(b.studentCount || 1, b.schoolStudentCount || 1))) || 1;
+      batchSubjRankChart.setOption({
+        tooltip: { trigger: 'axis', backgroundColor: theme.tooltipBg, textStyle: { color: theme.tooltipText } },
+        legend: { data: ['班级排名', '全校排名', '全区排名'], textStyle: { color: theme.textColor }, top: 8 },
+        grid: { top: 64, bottom: 120, left: 52, right: 20 },
+        xAxis: { type: 'category', data: xData, axisLabel: { color: theme.textColor, rotate: 45, fontSize: 11 }, axisLine: { lineStyle: { color: theme.axisLineColor } } },
+        yAxis: { type: 'value', name: subjName + '排名', inverse: true, min: 1, max: maxRank2, nameTextStyle: { color: theme.textColor, padding: [0, 0, 0, 40] }, axisLabel: { color: theme.textColor }, splitLine: { lineStyle: { color: theme.splitLineColor } } },
+        series: [
+          { name: '班级排名', type: 'line', data: rC, smooth: true, lineStyle: { width: 2.5, color: BATCH_COLOR_MINE }, itemStyle: { color: BATCH_COLOR_MINE } },
+          { name: '全校排名', type: 'line', data: rS, smooth: true, lineStyle: { width: 2, color: BATCH_COLOR_CLASS }, itemStyle: { color: BATCH_COLOR_CLASS } },
+          { name: '全区排名', type: 'line', data: rD, smooth: true, lineStyle: { width: 2, color: BATCH_COLOR_SCHOOL }, itemStyle: { color: BATCH_COLOR_SCHOOL } },
+        ],
+      }, true);
     }
 
     function renderRankChart() {
@@ -1216,7 +1524,7 @@
           const star = `<span onclick="toggleFav('${fullPath.replace(/'/g, "\\'")}', event)" style="cursor:pointer; margin-left:8px; color:${isFav ? '#fa8c16' : '#ddd'};" title="收藏知识点">${isFav ? '★' : '☆'}</span>`;
           return `
             <div style="padding:4px 0; padding-left:${paddingLeft}px;">
-              ${hasChildren ? `<span style="cursor:pointer; display:inline-block; width:16px;" onclick="event.stopPropagation(); const parent = this.parentElement; const childContainer = parent.lastElementChild; const isHidden = childContainer.style.display === 'none'; childContainer.style.display = isHidden ? 'block' : 'none'; this.textContent = isHidden ? '▼' : '▶'; if (isHidden) expandedPaths.add('${fullPath}'); else expandedPaths.delete('${fullPath}');">${isExpanded ? '▼' : '▶'} </span>` : `<span style="display:inline-block; width:16px;"></span>`}
+              ${hasChildren ? `<span style="cursor:pointer; display:inline-block; width:16px;" onclick="event.stopPropagation(); const parent = this.parentElement; const childContainer = parent.lastElementChild; const isHidden = childContainer.style.display === 'none'; childContainer.style.display = isHidden ? 'block' : 'none'; this.textContent = isHidden ? '▼' : '▶'; if (isHidden) expandedPaths.add('${String(fullPath).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'); else expandedPaths.delete('${String(fullPath).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}');">${isExpanded ? '▼' : '▶'} </span>` : `<span style="display:inline-block; width:16px;"></span>`}
               ${checkbox}
               <span style="font-size:14px; ${hasChildren ? 'font-weight:bold;' : ''}">${name}</span>
               <span style="color:#1890ff; font-size:12px; margin-left:8px;">共${thisCount}题</span>
