@@ -783,7 +783,7 @@
                     </div>
                     ${(resolveKpKey(exam.questionKp?.[i]).split(' / ').pop() || '') ? `<div style="color:#1890ff; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:2px;">${resolveKpKey(exam.questionKp?.[i]).split(' / ').pop()}</div>` : ''}
                   </div>
-                  <span class="${colorClass}" style="flex:none; min-width:96px; text-align:right; white-space:nowrap; box-sizing:border-box;">
+                  <span class="${colorClass}" style="flex:none; width:150px; text-align:right; white-space:nowrap; box-sizing:border-box;">
                     ${icon} 得分：${d.score}
                     <div style="font-size:12px; color:#666;">班级正确率：${(exam.qAvgRates?.[i] || 0).toFixed(1)}%</div>
                   </span>
@@ -1049,7 +1049,11 @@
       const rankC = recent.map((b) => (b.classRank || null));
       const rankS = recent.map((b) => b.schoolRank);
       const rankD = recent.map((b) => b.districtRank);
-      const maxRank = Math.max.apply(null, recent.map((b) => Math.max(b.studentCount || 1, b.schoolStudentCount || 1))) || 1;
+      const allRanks = recent.flatMap((b) => [b.classRank, b.schoolRank, b.districtRank].filter((v) => v != null && v > 0));
+      const maxRank = Math.max(
+        allRanks.length ? Math.max.apply(null, allRanks) : 0,
+        Math.max.apply(null, recent.map((b) => Math.max(b.studentCount || 1, b.schoolStudentCount || 1))) || 1
+      );
       batchRankChart.setOption({
         tooltip: { trigger: 'axis', backgroundColor: theme.tooltipBg, textStyle: { color: theme.tooltipText } },
         legend: { data: ['班级排名', '全校排名', '全区排名'], textStyle: { color: theme.textColor }, top: 8 },
@@ -1092,7 +1096,11 @@
       const rC = recent.map((b) => (b.subjectClassRank[si] || null));
       const rS = recent.map((b) => (b.subjectSchoolRank[si] != null ? b.subjectSchoolRank[si] : null));
       const rD = recent.map((b) => (b.subjectDistrictRank[si] != null ? b.subjectDistrictRank[si] : null));
-      const maxRank2 = Math.max.apply(null, recent.map((b) => Math.max(b.studentCount || 1, b.schoolStudentCount || 1))) || 1;
+      const allRanks2 = recent.flatMap((b) => [b.subjectClassRank[si], b.subjectSchoolRank[si], b.subjectDistrictRank[si]].filter((v) => v != null && v > 0));
+      const maxRank2 = Math.max(
+        allRanks2.length ? Math.max.apply(null, allRanks2) : 0,
+        Math.max.apply(null, recent.map((b) => Math.max(b.studentCount || 1, b.schoolStudentCount || 1))) || 1
+      );
       batchSubjRankChart.setOption({
         tooltip: { trigger: 'axis', backgroundColor: theme.tooltipBg, textStyle: { color: theme.tooltipText } },
         legend: { data: ['班级排名', '全校排名', '全区排名'], textStyle: { color: theme.textColor }, top: 8 },
@@ -1113,11 +1121,12 @@
       const xData = studentData.exams.map(e => e.examName);
       const rankData = studentData.exams.map(e => e.rank);
       const studentCount = studentData.exams[0]?.studentCount || 1;
+      const rankMax = Math.max(studentCount, ...rankData.filter((v) => v != null).concat([1]));
       rankChart.setOption({
         tooltip: { trigger: 'axis', backgroundColor: theme.tooltipBg, textStyle: { color: theme.tooltipText } },
         grid: { top: 20, bottom: 140, left: 40, right: 20 },
         xAxis: { type: 'category', data: xData, axisLabel: { color: theme.textColor, rotate: 45 }, axisLine: { lineStyle: { color: theme.axisLineColor } } },
-        yAxis: { type: 'value', name: '排名', inverse: true, min: 1, max: studentCount, nameTextStyle: { color: theme.textColor }, axisLabel: { color: theme.textColor }, splitLine: { lineStyle: { color: theme.splitLineColor } } },
+        yAxis: { type: 'value', name: '排名', inverse: true, min: 1, max: rankMax, nameTextStyle: { color: theme.textColor }, axisLabel: { color: theme.textColor }, splitLine: { lineStyle: { color: theme.splitLineColor } } },
         series: [{
           name: '班级排名',
           type: 'line',
