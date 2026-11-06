@@ -357,6 +357,19 @@
       return JSON.parse(plainJson);
     }
 
+    /**
+     * 解密班级名册（roster.json）：本班全部"学号+姓名"清单。
+     * 有密码班级用 PBKDF2 派生的 classKey 解密；无密码班级用固定盐 sha256('qxb-parent-roster::v1') 派生。
+     */
+    function decryptClassBlob(encBase64, classKey) {
+      const key = classKey || CryptoJS.SHA256('qxb-parent-roster::v1');
+      const full = CryptoJS.enc.Base64.parse(encBase64);
+      const iv = CryptoJS.lib.WordArray.create(full.words.slice(0, 4), 16);
+      const body = CryptoJS.lib.WordArray.create(full.words.slice(4), full.sigBytes - 16);
+      const dec = CryptoJS.AES.decrypt({ ciphertext: body }, key, { iv: iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 });
+      return JSON.parse(dec.toString(CryptoJS.enc.Utf8));
+    }
+
     // ===== 安全升级：班级密码 → PBKDF2 派生密钥 → 整个 exam 文件解密 =====
     // 与导出端 Node crypto.pbkdf2Sync(password, salt, iter, 32, 'sha256') 算法一致
     // 派生缓存：同一班级（同 salt+iter）只派生一次，登录校验与全部场次解密共用同一 key，
@@ -456,7 +469,7 @@
     // 学校校验：登录栏填写了学校、且该生有学校信息且不一致时返回提示文案；留空/无学校信息返回空串（跳过）
     function checkSchool(me, schoolInput) {
       if (schoolInput && me && me.school && schoolInput !== me.school) {
-        return `该学号对应的学生属于学校「${me.school}」，与输入不符`;
+        return '学号与所选学校不符，请检查学号或学校是否填写正确';
       }
       return '';
     }
@@ -519,60 +532,70 @@
           const statsRes = await fetch(`class/${classCode}/stats.json`, { cache: 'no-cache' });
           if (!statsRes.ok) throw new Error('班级统计数据不存在');
           const statsData = await statsRes.json();
-          // 并行拉取该生在每场考试文件夹下的学生文件（限并发 6；404 = 该生未参加该场，跳过）
+          // 预取最近 5 场（限并发 6）→ 命中即出首屏；其余场次后台补载；404 = 该生未参加该场，跳过
           const examList = indexList.exams || [];
           const statsMap = new Map((statsData.exams || []).map(x => [x.examCode, x]));
           studentData = { barcode: studentId, name: studentName, exams: [] };
           let found = false;
           let nameChecked = false;
-          
-          // 优化：先下载最近的5场，快速显示；其余后台慢慢下载+解密
-          const PRELOAD_COUNT = 5;
-          const totalCount = examList.length;
-          // 考试列表是倒序排列（新的在前，旧的在后），最近的5场 = 数组最前面5个
-          const preloadExams = examList.slice(0, PRELOAD_COUNT);
-          const bgExams = examList.slice(PRELOAD_COUNT); // 其余的后台下载
-          
-          // 先下载最近的10场学生文件
-          const preloadStuRawList = await fetchAllWithLimit(
-            preloadExams.map(e => `class/${classCode}/${e.examCode}/students/${studentId}.json`),
-            6,
-            { cache: 'no-cache' }
-          );
-          
-          // 先解密最近的10场
-          for (let i = 0; i < preloadExams.length; i++) {
-            const exam = preloadExams[i];
-            const raw = preloadStuRawList[i];
-            if (!raw) continue; // 该生未参加此场（404）
+          let rawHit = 0;       // 命中该生学生文件的场次数（用于区分"查无此人"与"密钥不匹配"）
+          let decryptFail = 0;  // 命中但因密钥不匹配解不开的次数
+          let fatalMsg = null;  // 姓名/学校校验失败时立即终止
+
+          // ① 名册秒判：roster.json = 本班全部"学号+姓名"（班级密钥加密）。
+          //    学号不对/姓名不符 直接给准确提示，不必逐场下载；旧包没有该文件则自动跳过。
+          let roster = null;
+          try {
+            const rs = await fetch(`class/${classCode}/roster.json`, { cache: 'no-cache' });
+            if (rs.ok) {
+              const rj = await rs.json();
+              if (rj && rj.enc) roster = decryptClassBlob(rj.enc, classKey);
+            }
+          } catch (e) { console.warn('名册读取失败，按逐场探查继续', e); }
+          if (roster && Array.isArray(roster.students)) {
+            const hit = roster.students.find((s) => String(s.no) === String(studentId));
+            if (!hit) {
+              hideLoading();
+              errEl.textContent = '未找到该学号，请检查学号是否正确';
+              errEl.classList.remove('hidden');
+              return;
+            }
+            if (hit.name && hit.name !== studentName) {
+              hideLoading();
+              errEl.textContent = '姓名与学号不符，请检查姓名是否填写正确';
+              errEl.classList.remove('hidden');
+              return;
+            }
+            nameChecked = true; // 姓名已由名册校验
+          }
+
+          // ② 单场处理：解密该生块 → 入列（同场只入列一次）
+          const stuPathOf = (code) => `class/${classCode}/${code}/students/${studentId}.json`;
+          const consumeExam = (exam, raw) => {
+            if (!raw) return; // 该生未参加此场（404），跳过
+            rawHit++;
             let me;
             try {
               me = decryptStudentData(raw.enc, studentName, studentId, classKey);
             } catch (e) {
+              decryptFail++;
               console.warn('场次解密失败:', exam.examCode, e);
-              continue;
+              return;
             }
             if (!nameChecked) {
-              if (me.name !== studentName) {
-                hideLoading();
-                errEl.textContent = `学号 ${studentId} 对应的学生姓名是「${me.name}」，与输入不符`;
-                errEl.classList.remove('hidden');
-                return;
-              }
+              if (me.name !== studentName) { fatalMsg = '姓名与学号不符，请检查姓名是否填写正确'; return; }
               const schoolErr = checkSchool(me, schoolInput);
-              if (schoolErr) {
-                hideLoading();
-                errEl.textContent = schoolErr;
-                errEl.classList.remove('hidden');
-                return;
-              }
+              if (schoolErr) { fatalMsg = schoolErr; return; }
               nameChecked = true;
             }
             found = true;
-            if (!me.exam) { console.warn('场次数据缺少 exam 字段，跳过:', exam.examCode); continue; }
+            if (!me.exam) { console.warn('场次数据缺少 exam 字段，跳过:', exam.examCode); return; }
+            if (studentData.exams.some((x) => x.examCode === exam.examCode)) return; // 防重复
             const s = statsMap.get(exam.examCode) || {};
             studentData.exams.push({
               examCode: exam.examCode,
+              examDate: exam.examDate || '',
+              createdAt: Number(exam.createdAt) || 0,
               examName: s.examName || exam.examCode,
               tag: s.tag || '',
               score: me.exam.score,
@@ -588,205 +611,221 @@
               kp: me.exam.kp || {},
               questionKp: s.questionKp || [],
             });
+          };
+
+          // ③ 预取最近 5 场 → 命中即出首屏（"进入速度"的关键，不能改成全量并发等待）；
+          //    未命中时才继续拉其余场次，"未找到"必须在全部场次跑完后才下结论（修掉提前判定 return 的根因）。
+          const PRELOAD = 5;
+          const headList = examList.slice(-PRELOAD); // 索引升序写盘，尾部 = 最近 5 场
+          const tailList = examList.slice(0, Math.max(0, examList.length - PRELOAD));
+          const headRaws = await fetchAllWithLimit(headList.map((e) => stuPathOf(e.examCode)), 6, { cache: 'no-cache' });
+          headList.forEach((e, i) => consumeExam(e, headRaws[i]));
+          if (fatalMsg) {
+            hideLoading();
+            errEl.textContent = fatalMsg;
+            errEl.classList.remove('hidden');
+            return;
           }
+          sortExamsDesc(); // 索引升序写盘，展示统一降序（新的在前），否则"较上一场"方向相反
+          renderExamList();
+          if (trendChart) renderChart();
           hideLoading();
-          
+
+          if (tailList.length > 0) {
+            if (!found) {
+              // 前 5 场没命中：等其余场次全部跑完再判定（绝不提前报"未找到"）
+              const tailRaws = await fetchAllWithLimit(tailList.map((e) => stuPathOf(e.examCode)), 6, { cache: 'no-cache' });
+              tailList.forEach((e, i) => consumeExam(e, tailRaws[i]));
+              if (fatalMsg) {
+                hideLoading();
+                errEl.textContent = fatalMsg;
+                errEl.classList.remove('hidden');
+                return;
+              }
+              sortExamsDesc();
+              renderExamList();
+              if (trendChart) renderChart();
+            } else {
+              // 已命中首屏：其余场次后台补载，不挡进入速度；补完自动刷新列表与折线
+              setTimeout(async () => {
+                try {
+                  const tailRaws = await fetchAllWithLimit(tailList.map((e) => stuPathOf(e.examCode)), 6, { cache: 'no-cache' });
+                  tailList.forEach((e, i) => consumeExam(e, tailRaws[i]));
+                  if (fatalMsg) return;
+                  sortExamsDesc();
+                  renderExamList();
+                  if (trendChart) renderChart();
+                } catch (e) { console.warn('后台补载失败:', e); }
+              }, 200);
+            }
+          }
+
           // 加载知识点地图（V4 分支也要加载）
           try { await loadKpMap(); } catch (e) { /* 无知识地图时知识点功能降级，不阻断登录 */ }
-          
+
           if (!found) {
             // 兜底：小考无成绩 → 尝试从统考批次定位（仅参加统考的学生直接显示统考）
             if (!(await tryFindInBatch(classCode, studentId, studentName, schoolInput))) {
-              errEl.textContent = '未找到该学号，请检查学号是否正确';
+              // 区分四种"查不到"：学号不对 / 本班没发布成绩 / 该生确实未参加 / 数据与访问码不匹配
+              const hasAnyData = examList.some((e) => Number(e.studentCount) > 0);
+              if (rawHit > 0 && decryptFail >= rawHit) {
+                errEl.textContent = '已找到该学号的成绩文件，但用当前班级访问码解不开（访问码与数据不匹配，请核对访问码或让老师重新导出）';
+              } else if (roster) {
+                errEl.textContent = hasAnyData
+                  ? '该生暂无已发布的成绩（本班已有考试数据，但该生未参加）'
+                  : '该班级暂无可查询的成绩（老师尚未发布本班考试数据）';
+              } else {
+                errEl.textContent = hasAnyData
+                  ? '未找到该学号，请检查学号是否正确'
+                  : '该班级暂无可查询的成绩（老师尚未发布本班考试数据）';
+              }
               errEl.classList.remove('hidden');
               return;
             }
           }
-          
-          // 后台下载+解密其余的考试（最近的10场已显示，其余慢慢下载解密，下载完自动更新界面）
-          if (bgExams.length > 0) {
-            // 后台慢慢下载+解密其余的（后面的初始化代码会负责第一次渲染）
-            setTimeout(async () => {
-              for (const exam of bgExams) {
-                // 先下载这个考试的学生文件
-                let raw;
-                try {
-                  raw = await fetch(`class/${classCode}/${exam.examCode}/students/${studentId}.json`, { cache: 'no-cache' }).then(r => r.ok ? r.json() : null);
-                } catch (e) {
-                  continue; // 下载失败就跳过
-                }
-                if (!raw) continue; // 该生未参加此场
-                let me;
-                try {
-                  me = decryptStudentData(raw.enc, studentName, studentId, classKey);
-                } catch (e) {
-                  console.warn('场次解密失败:', exam.examCode, e);
-                  continue;
-                }
-                if (!me.exam) { console.warn('场次数据缺少 exam 字段，跳过:', exam.examCode); continue; }
-                const s = statsMap.get(exam.examCode) || {};
-                // 加到数组后面（旧考试在后面，顺序已经是对的，不需要重新排序）
-                studentData.exams.push({
-                  examCode: exam.examCode,
-                  examName: s.examName || exam.examCode,
-                  tag: s.tag || '',
-                  score: me.exam.score,
-                  maxScore: s.maxScore || 0,
-                  rate: me.exam.rate,
-                  rank: me.exam.rank,
-                  studentCount: s.studentCount || 0,
-                  avgScore: s.avgScore || 0,
-                  avgRate: s.avgRate || 0,
-                  qAvgRates: s.qAvgRates || [],
-                  classKpRates: s.classKpRates || {},
-                  details: me.exam.details || [],
-                  kp: me.exam.kp || {},
-                  questionKp: s.questionKp || [],
-                });
-                // 重新渲染界面
-                renderExamList();
-                if (trendChart) renderChart();
-                await nextFrame();
-              }
-            }, 100);
-          }
         } else {
-        // 优化：先下载最近的5场考试文件，快速显示；其余后台慢慢下载
+        // 【V9.1.9】v3/v2 加载策略：名册秒判 → 预取最近 5 场快出 → 其余后台补，判定延后
         const PRELOAD_COUNT = 5;
-        const totalExams = indexList.exams.length;
-        // 考试列表是倒序排列（新的在前，旧的在后），最近的5场 = 数组最前面5个
-        const preloadExams = indexList.exams.slice(0, PRELOAD_COUNT);
-        const bgExams = indexList.exams.slice(PRELOAD_COUNT);
-        const raws = await fetchAllWithLimit(
-          preloadExams.map(e => `class/${classCode}/${e.path}`),
-          6,
-          { cache: 'no-cache' }
-        );
-
-        // 解密：v3 只解当前学生块（班级统计明文直接用）；v2 旧包整场解密（兼容已部署包）。
+        const examAll = indexList.exams || [];
+        const headExams = examAll.slice(-PRELOAD_COUNT); // 索引升序，尾部 = 最近 5 场
+        const bgExams = examAll.slice(0, Math.max(0, examAll.length - PRELOAD_COUNT));
         studentData = { exams: [] };
         let found = false;
         let nameChecked = false;
-        
-        // 先解密最近的10场
-        for (let i = 0; i < preloadExams.length; i++) {
-          const exam = preloadExams[i];
-          const raw = raws[i];
-          if (!raw) continue;
-          try {
-            let examData = raw;
-            if (raw && raw.v === 2 && raw.enc) {
-              if (!pwd) {
-                hideLoading();
-                errEl.textContent = '该班级需要访问密码，请填写后重试';
-                errEl.classList.remove('hidden');
-                return;
-              }
-              examData = decryptExamFile(raw, pwd);
-            }
-            const encStudent = (examData.students || []).find(s => s.barcode === studentId);
-            if (encStudent) {
-              // 只解密当前学生块（v2 旧包学生块为固定盐密钥 → 传 null；v3 传班级密钥）
-              const me = decryptStudentData(encStudent.enc, studentName, studentId, raw && raw.v === 3 ? classKey : null);
-              found = true;
-              // 校验姓名
-              if (!nameChecked) {
-                if (me.name !== studentName) {
-                  hideLoading();
-                  errEl.textContent = `学号 ${studentId} 对应的学生姓名是「${me.name}」，与输入不符`;
-                  errEl.classList.remove('hidden');
-                  return;
-                }
-                const schoolErr = checkSchool(me, schoolInput);
-                if (schoolErr) {
-                  hideLoading();
-                  errEl.textContent = schoolErr;
-                  errEl.classList.remove('hidden');
-                  return;
-                }
-                nameChecked = true;
-              }
-              studentData.exams.push({
-                ...exam,
-                score: me.score,
-                maxScore: me.maxScore,
-                rate: me.rate,
-                rank: me.rank,
-                avgScore: examData.avgScore,
-                avgRate: examData.avgRate,
-                qAvgRates: examData.qAvgRates,
-                classKpRates: examData.classKpRates || {},
-                details: me.details,
-                kp: me.kp || {},
-                questionKp: examData.questionKp || [],
-              });
-            }
-          } catch (e) {
-            console.warn('解密考试失败:', exam.examCode, e);
-          }
-        }
-        hideLoading();
-        
-        if (!found) {
-          // 兜底：小考无成绩 → 尝试从统考批次定位（仅参加统考的学生直接显示统考）
-          if (!(await tryFindInBatch(classCode, studentId, studentName, schoolInput))) {
+        let rawHit = 0;
+        let decryptFail = 0;
+        let fatalMsg = null;
+
+        // ① 名册校验（同 v4；旧包无 roster.json 时跳过，回退到逐场探查）
+        let roster = null;
+        try {
+          const rs = await fetch(`class/${classCode}/roster.json`, { cache: 'no-cache' });
+          if (rs.ok) { const rj = await rs.json(); if (rj && rj.enc) roster = decryptClassBlob(rj.enc, classKey); }
+        } catch (e) { console.warn('名册读取失败，按逐场探查继续', e); }
+        if (roster && Array.isArray(roster.students)) {
+          const hit = roster.students.find((s) => String(s.no) === String(studentId));
+          if (!hit) {
+            hideLoading();
             errEl.textContent = '未找到该学号，请检查学号是否正确';
             errEl.classList.remove('hidden');
             return;
           }
+          if (hit.name && hit.name !== studentName) {
+            hideLoading();
+            errEl.textContent = '姓名与学号不符，请检查姓名是否填写正确';
+            errEl.classList.remove('hidden');
+            return;
+          }
+          nameChecked = true;
         }
-        
-        // 后台下载+解密其余的考试（最近的5场已显示，其余慢慢下载解密，下载完自动更新界面）
-        if (bgExams.length > 0) {
-          // 先等后面的初始化代码执行完，再在后台慢慢下载+解密
-          setTimeout(async () => {
-            for (const exam of bgExams) {
-              // 先下载这个考试文件
-              let raw;
-              try {
-                raw = await fetch(`class/${classCode}/${exam.path}`, { cache: 'no-cache' }).then(r => r.ok ? r.json() : null);
-              } catch (e) {
-                continue; // 下载失败就跳过
-              }
-              if (!raw) continue;
-              try {
-                let examData = raw;
-                if (raw && raw.v === 2 && raw.enc) {
-                  examData = decryptExamFile(raw, pwd);
-                }
-                const encStudent = (examData.students || []).find(s => s.barcode === studentId);
-                if (encStudent) {
-                  const me = decryptStudentData(encStudent.enc, studentName, studentId, raw && raw.v === 3 ? classKey : null);
-                  // 加到数组后面（旧考试在后面）
-                  studentData.exams.push({
-                    ...exam,
-                    score: me.score,
-                    maxScore: me.maxScore,
-                    rate: me.rate,
-                    rank: me.rank,
-                    avgScore: examData.avgScore,
-                    avgRate: examData.avgRate,
-                    qAvgRates: examData.qAvgRates,
-                    classKpRates: examData.classKpRates || {},
-                    details: me.details,
-                    kp: me.kp || {},
-                    questionKp: examData.questionKp || [],
-                  });
-                  // 重新渲染界面
-                  renderExamList();
-                  if (trendChart) renderChart();
-                  await nextFrame();
-                }
-              } catch (e) {
-                console.warn('后台解密考试失败:', exam.examCode, e);
-              }
+
+        // ② 单场处理：v3 每场含全班，v2 旧包需先整场解密，v3 只解当前学生块
+        const consumeV3 = (exam, raw) => {
+          if (!raw) return;
+          rawHit++;
+          try {
+            let examData = raw;
+            if (raw && raw.v === 2 && raw.enc) {
+              if (!pwd) { fatalMsg = '该班级需要访问密码，请填写后重试'; return; }
+              examData = decryptExamFile(raw, pwd);
             }
-          }, 200);
+            const encStudent = (examData.students || []).find((s) => s.barcode === studentId);
+            if (!encStudent) return;
+            const me = decryptStudentData(encStudent.enc, studentName, studentId, raw && raw.v === 3 ? classKey : null);
+            if (!nameChecked) {
+              if (me.name !== studentName) { fatalMsg = '姓名与学号不符，请检查姓名是否填写正确'; return; }
+              const schoolErr = checkSchool(me, schoolInput);
+              if (schoolErr) { fatalMsg = schoolErr; return; }
+              nameChecked = true;
+            }
+            found = true;
+            if (studentData.exams.some((x) => x.examCode === exam.examCode)) return;
+            studentData.exams.push({
+              ...exam,
+              examDate: exam.examDate || '',
+              createdAt: Number(exam.createdAt) || 0,
+              score: me.score,
+              maxScore: me.maxScore,
+              rate: me.rate,
+              rank: me.rank,
+              avgScore: examData.avgScore,
+              avgRate: examData.avgRate,
+              qAvgRates: examData.qAvgRates,
+              classKpRates: examData.classKpRates || {},
+              details: me.details,
+              kp: me.kp || {},
+              questionKp: examData.questionKp || [],
+            });
+          } catch (e) {
+            decryptFail++;
+            console.warn('解密考试失败:', exam.examCode, e);
+          }
+        };
+
+        // ③ 预取最近 5 场（快速首屏）
+        const headRaws = await fetchAllWithLimit(headExams.map(e => `class/${classCode}/${e.path}`), 6, { cache: 'no-cache' });
+        headExams.forEach((exam, i) => consumeV3(exam, headRaws[i]));
+        if (fatalMsg) {
+          hideLoading();
+          errEl.textContent = fatalMsg;
+          errEl.classList.remove('hidden');
+          return;
+        }
+        sortExamsDesc();
+        renderExamList();
+        if (trendChart) renderChart();
+        hideLoading();
+
+        if (bgExams.length > 0) {
+          if (!found) {
+            // 前 5 场没命中 → 必须等其余场次跑完再判定"未找到"（修掉提前 return 掐掉后台补载的根因）
+            const bgRaws = await fetchAllWithLimit(bgExams.map(e => `class/${classCode}/${e.path}`), 6, { cache: 'no-cache' });
+            bgExams.forEach((exam, i) => consumeV3(exam, bgRaws[i]));
+            if (fatalMsg) {
+              hideLoading();
+              errEl.textContent = fatalMsg;
+              errEl.classList.remove('hidden');
+              return;
+            }
+            sortExamsDesc();
+            renderExamList();
+            if (trendChart) renderChart();
+          } else {
+            // 已命中首屏 → 其余场次后台补载（不挡进入速度）
+            setTimeout(async () => {
+              try {
+                const bgRaws = await fetchAllWithLimit(bgExams.map(e => `class/${classCode}/${e.path}`), 6, { cache: 'no-cache' });
+                bgExams.forEach((exam, i) => consumeV3(exam, bgRaws[i]));
+                if (fatalMsg) return;
+                sortExamsDesc();
+                renderExamList();
+                if (trendChart) renderChart();
+              } catch (e) { console.warn('后台补载失败:', e); }
+            }, 200);
+          }
+        }
+
+        if (!found) {
+          if (rawHit > 0 && decryptFail >= rawHit) {
+            errEl.textContent = '已找到该学号的成绩文件，但用当前班级访问码解不开（访问码与数据不匹配，请核对访问码或让老师重新导出）';
+            errEl.classList.remove('hidden');
+            return;
+          }
+          // 兜底：小考无成绩 → 尝试从统考批次定位
+          if (!(await tryFindInBatch(classCode, studentId, studentName, schoolInput))) {
+            // v3 索引项不一定带 studentCount：有考试索引即视为"本班已发布成绩"
+            const hasAnyData = examAll.length > 0;
+            errEl.textContent = roster
+              ? (hasAnyData ? '该生暂无已发布的成绩（本班已有考试数据，但该生未参加）' : '该班级暂无可查询的成绩（老师尚未发布本班考试数据）')
+              : (hasAnyData ? '未找到该学号，请检查学号是否正确' : '该班级暂无可查询的成绩（老师尚未发布本班考试数据）');
+            errEl.classList.remove('hidden');
+            return;
+          }
         }
         } // 闭合 v3/v2 兼容分支（v4 分支已在上面完成）
 
-        // 按考试码升序排序
-        studentData.exams.sort((a, b) => String(b.examCode).localeCompare(String(a.examCode)));
+        // 统一降序（新的在前）：图表横轴再单独反转成"左旧右新"，列表保持上新下旧
+        studentData.exams.sort((a, b) => compareExamOrder(b, a));
 
         // 预加载知识地图：确保答题详情/折线/雷达渲染时 id→路径映射已就绪（修复乱码与取数断链）
         try { await loadKpMap(); } catch (e) { /* 无知识地图时知识点功能降级，不阻断登录 */ }
@@ -879,6 +918,46 @@
       renderChart();
     }
 
+    // ===== 考试先后顺序统一口径（与导出端 parent_static_export.cjs / 前端 examOrder.ts 完全一致）=====
+    // 填了真实考试时间（examDate=YYYY-MM-DD）→ 按考试时间；未填 → 按创建时间；同日按考试编号。
+    function parseExamDayValue(text) {
+      const s = String(text == null ? '' : text).trim();
+      const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s);
+      if (!m) return null;
+      const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+      if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+      const dt = new Date(y, mo - 1, d);
+      if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+      return dt.getTime();
+    }
+    function examOrderDay(e) {
+      const byDate = parseExamDayValue(e && e.examDate);
+      if (byDate !== null) return byDate;
+      const t = Number(e && e.createdAt) || 0;
+      if (t) { const dt = new Date(t); return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime(); }
+      const code = String((e && (e.examCode || e.code)) || '');
+      const m = /^(\d{2})(\d{2})(\d{2})/.exec(code);
+      if (m) {
+        const y = 2000 + Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+        if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) return new Date(y, mo - 1, d).getTime();
+      }
+      return 0;
+    }
+    function compareExamOrder(a, b) {
+      const d = examOrderDay(a) - examOrderDay(b);
+      if (d !== 0) return d;
+      const c = String((a && a.examCode) || '').localeCompare(String((b && b.examCode) || ''));
+      if (c !== 0) return c;
+      // 同日同号（异常数据）再按 id，保证排序稳定 —— 与 examOrder.ts / parent_static_export.cjs 一致
+      return String((a && a.id) || '').localeCompare(String((b && b.id) || ''));
+    }
+
+    // 考试列表统一降序（新的在前）：v3/v4 两个分支共用同一口径，避免展示方向不一致
+    function sortExamsDesc() {
+      if (!studentData || !Array.isArray(studentData.exams)) return;
+      studentData.exams.sort((a, b) => compareExamOrder(b, a));
+    }
+
     function renderExamList() {
       const listEl = document.getElementById('exam-list');
       listEl.innerHTML = '';
@@ -904,7 +983,7 @@
         // 计算位置百分比（越靠前位置越靠左；单人班分母为0时归0）
         const posPercent = exam.studentCount > 1 ? Math.round((exam.rank - 1) / (exam.studentCount - 1) * 100) : 0;
         card.innerHTML = `
-          <div class="exam-code">${exam.examCode}${exam.tag ? ` [${exam.tag}]` : ''} ${changeTag}</div>
+          <div class="exam-code">${exam.examCode}${exam.examDate ? ` · ${exam.examDate}` : ''}${exam.tag ? ` [${exam.tag}]` : ''} ${changeTag}</div>
           <div style="display:flex; justify-content:space-between; align-items:center; margin:8px 0;">
             <div class="exam-name" style="margin:0;">${exam.examName}</div>
             <div class="exam-score" style="font-size:24px;">${displayMode === 'rate' ? exam.rate + '%' : exam.score + '分'}</div>
@@ -995,10 +1074,10 @@
         tipEl.classList.add('hidden');
         return;
       }
-      // 收集所有有班级平均的知识点，算最近3场的平均差
+      // 收集所有有班级平均的知识点，算最近3场的平均差（列表降序=新在前，前 3 项才是最近 3 场）
       const weakPoints = [];
       const goodPoints = [];
-      const latestExams = studentData.exams.slice(-3);
+      const latestExams = studentData.exams.slice(0, 3);
       if (!latestExams.length) {
         tipEl.classList.add('hidden');
         return;
@@ -1277,8 +1356,10 @@
     function renderRankChart() {
       if (!rankChart) return;
       const theme = getChartTheme();
-      const xData = studentData.exams.map(e => e.examName);
-      const rankData = studentData.exams.map(e => e.rank);
+      // 横轴统一"左旧右新"（列表是降序，图上反转）
+      const asc = studentData.exams.slice().reverse();
+      const xData = asc.map(e => e.examName);
+      const rankData = asc.map(e => e.rank);
       const studentCount = studentData.exams[0]?.studentCount || 1;
       const rankMax = Math.max(studentCount, ...rankData.filter((v) => v != null).concat([1]));
       rankChart.setOption({
@@ -1335,11 +1416,11 @@
     function renderChart() {
       if (!trendChart) return;
       const theme = getChartTheme();
-      // 根据选择的场次范围截取数据（从最新的开始往后取）
-      let exams = studentData.exams;
+      // 横轴统一"左旧右新"：studentData.exams 是降序（新在前），这里反转成升序
+      let exams = studentData.exams.slice().reverse();
       if (trendRange !== 'all') {
         const n = parseInt(trendRange);
-        exams = exams.slice(0, n); // 取最前面n场（最新的n场）
+        exams = exams.slice(-n); // 升序数组取尾部 = 最近 n 场
       }
       const xData = exams.map(e => e.examName);
       let series = [];
